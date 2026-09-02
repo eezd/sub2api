@@ -221,7 +221,7 @@ export default {
     loading: '正在加载无限画布...',
     missingKey: '未找到可用的 API 密钥，请先创建并启用一个密钥。',
     loadFailed: '加载 API 密钥失败，请稍后重试。',
-    notConfigured: '无限画布地址未配置，请将 VITE_INFINITE_CANVAS_URL 设置为已部署的画布地址。',
+    notConfigured: '无限画布地址未配置，请在 Sub2API 服务端设置 INFINITE_CANVAS_URL，或在构建前端时设置 VITE_INFINITE_CANVAS_URL。',
     openKeys: '管理 API 密钥',
     openConfig: '打开画布配置'
   },

@@ -221,7 +221,7 @@ export default {
     loading: 'Loading Infinite Canvas...',
     missingKey: 'No active API key found. Create and enable one first.',
     loadFailed: 'Failed to load the API key. Please try again later.',
-    notConfigured: 'Infinite Canvas is not configured. Set VITE_INFINITE_CANVAS_URL to the deployed canvas URL.',
+    notConfigured: 'Infinite Canvas is not configured. Set INFINITE_CANVAS_URL on the Sub2API server or VITE_INFINITE_CANVAS_URL at build time.',
     openKeys: 'Manage API keys',
     openConfig: 'Open canvas settings'
   },
