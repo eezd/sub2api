@@ -216,15 +216,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/infinite-canvas',
+    path: '/workspace/canvas',
+    alias: '/infinite-canvas',
     name: 'InfiniteCanvas',
     component: () => import('@/views/user/InfiniteCanvasView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Infinite Canvas',
-      titleKey: 'nav.infiniteCanvas',
-      descriptionKey: 'nav.infiniteCanvas'
+      titleKey: 'infiniteCanvas.title',
+      descriptionKey: 'infiniteCanvas.description'
     }
   },
   {
