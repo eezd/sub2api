@@ -72,6 +72,7 @@ export default {
     saving: '保存中...',
     selectedCount: '（已选 {count} 个）',
     refresh: '刷新',
+    retry: '重试',
     autoRefresh: {
       title: '自动刷新',
       enable: '启用自动刷新',
@@ -173,6 +174,7 @@ export default {
     groups: '分组管理',
     channels: '渠道管理',
     availableChannels: '可用渠道',
+    infiniteCanvas: '无限画布',
     modelPlaza: '模型广场',
     subscriptions: '订阅管理',
     accounts: '账号管理',
@@ -206,6 +208,22 @@ export default {
     contentModeration: '内容审核',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+  },
+  infiniteCanvas: {
+    title: '无限画布',
+    subtitle: '使用当前 API 密钥直接进入 AI 图片、视频与创意工作台',
+    chooseKey: '选择画布使用的 API 密钥',
+    connected: '已连接',
+    connecting: '连接中',
+    connectCodex: '连接 Codex',
+    refresh: '刷新',
+    openNewWindow: '新窗口打开',
+    loading: '正在加载无限画布...',
+    missingKey: '未找到可用的 API 密钥，请先创建并启用一个密钥。',
+    loadFailed: '加载 API 密钥失败，请稍后重试。',
+    notConfigured: '无限画布地址未配置，请将 VITE_INFINITE_CANVAS_URL 设置为已部署的画布地址。',
+    openKeys: '管理 API 密钥',
+    openConfig: '打开画布配置'
   },
 
   // Auth

@@ -72,6 +72,7 @@ export default {
     saving: 'Saving...',
     selectedCount: '({count} selected)',
     refresh: 'Refresh',
+    retry: 'Retry',
     autoRefresh: {
       title: 'Auto Refresh',
       enable: 'Enable auto refresh',
@@ -173,6 +174,7 @@ export default {
     groups: 'Groups',
     channels: 'Channels',
     availableChannels: 'Available Channels',
+    infiniteCanvas: 'Infinite Canvas',
     modelPlaza: 'Model Plaza',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
@@ -206,6 +208,22 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+  },
+  infiniteCanvas: {
+    title: 'Infinite Canvas',
+    subtitle: 'Use the current API key to enter the AI image, video, and creative workspace directly',
+    chooseKey: 'Select the API key used by the canvas',
+    connected: 'Connected',
+    connecting: 'Connecting',
+    connectCodex: 'Connect Codex',
+    refresh: 'Refresh',
+    openNewWindow: 'Open in new window',
+    loading: 'Loading Infinite Canvas...',
+    missingKey: 'No active API key found. Create and enable one first.',
+    loadFailed: 'Failed to load the API key. Please try again later.',
+    notConfigured: 'Infinite Canvas is not configured. Set VITE_INFINITE_CANVAS_URL to the deployed canvas URL.',
+    openKeys: 'Manage API keys',
+    openConfig: 'Open canvas settings'
   },
 
   // Auth
