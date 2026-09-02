@@ -130,8 +130,32 @@ describe('InfiniteCanvasView', () => {
     const frameUrl = new URL(wrapper.get('iframe').attributes('src'), window.location.origin)
     expect(frameUrl.searchParams.get('apiKey')).toBe('sk-second-key')
   })
-  it('shows a configuration error instead of embedding the current page', async () => {
+  it('embeds an explicitly configured canvas at the current route', async () => {
     publicSettings.infinite_canvas_url = `${window.location.origin}/infinite-canvas`
+    const originalPath = window.location.pathname
+    window.history.pushState({}, '', '/infinite-canvas')
+    listKeys.mockResolvedValue({ items: [{ id: 1, key: 'active-key', status: 'active' }] })
+
+    const wrapper = mount(InfiniteCanvasView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          LoadingSpinner: true,
+          RouterLink: { template: '<a><slot /></a>' }
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const frameUrl = new URL(wrapper.get('iframe').attributes('src')!)
+    expect(frameUrl.pathname).toBe('/infinite-canvas/')
+    expect(frameUrl.searchParams.get('apiKey')).toBe('active-key')
+    window.history.pushState({}, '', originalPath)
+  })
+
+  it('rejects the implicit fallback when it would embed the current route', async () => {
     const originalPath = window.location.pathname
     window.history.pushState({}, '', '/infinite-canvas')
     listKeys.mockResolvedValue({ items: [{ id: 1, key: 'active-key', status: 'active' }] })
