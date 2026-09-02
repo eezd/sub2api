@@ -343,6 +343,7 @@ type PublicSettings struct {
 	SiteName                            string
 	SiteLogo                            string
 	SiteSubtitle                        string
+	InfiniteCanvasURL                   string
 	APIBaseURL                          string
 	ContactInfo                         string
 	DocURL                              string

@@ -681,6 +681,7 @@ type ServerConfig struct {
 	Mode                     string    `mapstructure:"mode"`                  // debug/release
 	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
 	FrontendURL              string    `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
+	InfiniteCanvasURL        string    `mapstructure:"infinite_canvas_url"`   // Infinite Canvas 外部访问地址
 	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
 	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
 	IdleTimeout              int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
@@ -1796,6 +1797,9 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	if err := viper.BindEnv("server.enable_server_timing", "ENABLE_SERVER_TIMING"); err != nil {
 		return nil, fmt.Errorf("bind ENABLE_SERVER_TIMING: %w", err)
 	}
+	if err := viper.BindEnv("server.infinite_canvas_url", "INFINITE_CANVAS_URL"); err != nil {
+		return nil, fmt.Errorf("bind INFINITE_CANVAS_URL: %w", err)
+	}
 
 	// 默认值
 	setDefaults()
@@ -1841,6 +1845,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Server.Mode = "debug"
 	}
 	cfg.Server.FrontendURL = strings.TrimSpace(cfg.Server.FrontendURL)
+	cfg.Server.InfiniteCanvasURL = strings.TrimSpace(cfg.Server.InfiniteCanvasURL)
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
 	cfg.LinuxDo.ClientID = strings.TrimSpace(cfg.LinuxDo.ClientID)
 	cfg.LinuxDo.ClientSecret = strings.TrimSpace(cfg.LinuxDo.ClientSecret)
@@ -1995,6 +2000,7 @@ func setDefaults() {
 	viper.SetDefault("server.mode", "release")
 	viper.SetDefault("server.enable_server_timing", false)
 	viper.SetDefault("server.frontend_url", "")
+	viper.SetDefault("server.infinite_canvas_url", "")
 	viper.SetDefault("server.read_header_timeout", 10) // 10秒读取请求头
 	viper.SetDefault("server.max_header_bytes", 64*1024)
 	viper.SetDefault("server.idle_timeout", 120) // 120秒空闲超时
@@ -2795,6 +2801,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("server.frontend_url invalid: must not include userinfo")
 		}
 		warnIfInsecureURL("server.frontend_url", c.Server.FrontendURL)
+	}
+	if c.Server.InfiniteCanvasURL != "" {
+		if err := ValidateAbsoluteHTTPURL(c.Server.InfiniteCanvasURL); err != nil {
+			return fmt.Errorf("server.infinite_canvas_url invalid: %w", err)
+		}
 	}
 	if c.WebAuthn.Enabled {
 		c.WebAuthn.RPDisplayName = strings.TrimSpace(c.WebAuthn.RPDisplayName)

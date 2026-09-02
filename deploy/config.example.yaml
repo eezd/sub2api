@@ -27,6 +27,9 @@ server:
   # 用于生成邮件中的外部链接（例如：重置密码链接）的前端基础地址
   # Example: "https://example.com"
   frontend_url: ""
+  # Infinite Canvas 外部访问地址；设置后会注入公开前端配置并允许 iframe frame-src
+  # Example: "https://canvas.example.com"
+  infinite_canvas_url: ""
   # Maximum time to receive complete request headers. Does not limit response streams.
   # 完整读取请求头的最大时间；不限制响应流持续时间。
   read_header_timeout: 10

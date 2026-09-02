@@ -79,6 +79,23 @@ func TestLoadServerTimingConfig(t *testing.T) {
 	})
 }
 
+func TestLoadInfiniteCanvasURL(t *testing.T) {
+	t.Run("empty by default", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Empty(t, cfg.Server.InfiniteCanvasURL)
+	})
+
+	t.Run("trimmed from exact environment variable", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		t.Setenv("INFINITE_CANVAS_URL", "  https://canvas.example.com/  ")
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, "https://canvas.example.com/", cfg.Server.InfiniteCanvasURL)
+	})
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")

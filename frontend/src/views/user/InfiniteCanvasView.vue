@@ -128,13 +128,17 @@ function isSelfEmbeddingUrl(value: string) {
 const selectedKey = computed(() => activeKeys.value.find((item) => item.id === selectedKeyId.value))
 const apiKey = computed(() => selectedKey.value?.key || '')
 
+const canvasBaseUrl = computed(() => {
+  const configuredUrl = appStore.cachedPublicSettings?.infinite_canvas_url?.trim()
+  return (configuredUrl || import.meta.env.VITE_INFINITE_CANVAS_URL || '/infinite-canvas').replace(/\/+$/, '')
+})
+
 const canvasUrl = computed(() => {
-  const baseUrl = (import.meta.env.VITE_INFINITE_CANVAS_URL || '/infinite-canvas').replace(/\/+$/, '')
   const params = new URLSearchParams({
     baseUrl: resolveApiBaseUrl(appStore.cachedPublicSettings?.api_base_url || '/api/v1'),
     apiKey: apiKey.value
   })
-  return `${baseUrl}/?${params.toString()}`
+  return `${canvasBaseUrl.value}/?${params.toString()}`
 })
 
 async function loadCanvas() {
@@ -142,7 +146,7 @@ async function loadCanvas() {
   errorMessage.value = ''
   configurationError.value = false
   canvasReady.value = false
-  if (isSelfEmbeddingUrl((import.meta.env.VITE_INFINITE_CANVAS_URL || '/infinite-canvas').trim())) {
+  if (isSelfEmbeddingUrl(canvasBaseUrl.value)) {
     configurationError.value = true
     errorMessage.value = t('infiniteCanvas.notConfigured')
     loading.value = false

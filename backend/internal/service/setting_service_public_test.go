@@ -225,3 +225,24 @@ func TestSettingService_GetPublicSettings_FallsBackToConfigForWeChatOAuthCapabil
 	require.False(t, settings.WeChatOAuthMPEnabled)
 	require.False(t, settings.WeChatOAuthMobileEnabled)
 }
+
+func TestSettingService_InfiniteCanvasURLFlowsToPublicSettingsAndCSPOrigins(t *testing.T) {
+	const canvasURL = "https://canvas.example.com/app"
+	svc := NewSettingService(&settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyHomeContent: "https://canvas.example.com/home",
+		},
+	}, &config.Config{Server: config.ServerConfig{InfiniteCanvasURL: canvasURL}})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, canvasURL, settings.InfiniteCanvasURL)
+
+	injected, err := svc.GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, canvasURL, injected.(*PublicSettingsInjectionPayload).InfiniteCanvasURL)
+
+	origins, err := svc.GetFrameSrcOrigins(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://canvas.example.com"}, origins)
+}

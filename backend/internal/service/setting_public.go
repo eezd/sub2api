@@ -324,6 +324,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SiteName:                            s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
 		SiteLogo:                            settings[SettingKeySiteLogo],
 		SiteSubtitle:                        s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		InfiniteCanvasURL:                   s.cfg.Server.InfiniteCanvasURL,
 		APIBaseURL:                          settings[SettingKeyAPIBaseURL],
 		ContactInfo:                         settings[SettingKeyContactInfo],
 		DocURL:                              settings[SettingKeyDocURL],
@@ -574,6 +575,7 @@ type PublicSettingsInjectionPayload struct {
 	SiteName                            string                   `json:"site_name"`
 	SiteLogo                            string                   `json:"site_logo"`
 	SiteSubtitle                        string                   `json:"site_subtitle"`
+	InfiniteCanvasURL                   string                   `json:"infinite_canvas_url"`
 	APIBaseURL                          string                   `json:"api_base_url"`
 	ContactInfo                         string                   `json:"contact_info"`
 	DocURL                              string                   `json:"doc_url"`
@@ -663,6 +665,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		SiteName:                            settings.SiteName,
 		SiteLogo:                            settings.SiteLogo,
 		SiteSubtitle:                        settings.SiteSubtitle,
+		InfiniteCanvasURL:                   settings.InfiniteCanvasURL,
 		APIBaseURL:                          settings.APIBaseURL,
 		ContactInfo:                         settings.ContactInfo,
 		DocURL:                              settings.DocURL,
@@ -758,8 +761,8 @@ func safeRawJSONArray(raw string) json.RawMessage {
 	return json.RawMessage("[]")
 }
 
-// GetFrameSrcOrigins returns deduplicated http(s) origins from home_content URL,
-// purchase_subscription_url, and all custom_menu_items URLs. Used by the router layer for CSP frame-src injection.
+// GetFrameSrcOrigins returns deduplicated http(s) origins from the configured
+// Infinite Canvas URL, home_content URL, purchase_subscription_url, and all custom_menu_items URLs. Used by the router layer for CSP frame-src injection.
 func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, error) {
 	settings, err := s.GetPublicSettings(ctx)
 	if err != nil {
@@ -780,6 +783,7 @@ func (s *SettingService) GetFrameSrcOrigins(ctx context.Context) ([]string, erro
 
 	// home content URL (when home_content is set to a URL for iframe embedding)
 	addOrigin(settings.HomeContent)
+	addOrigin(settings.InfiniteCanvasURL)
 
 	// purchase subscription URL
 	if settings.PurchaseSubscriptionEnabled {

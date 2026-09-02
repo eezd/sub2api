@@ -1,11 +1,12 @@
 import type * as VueI18n from 'vue-i18n'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import InfiniteCanvasView from '../InfiniteCanvasView.vue'
 
 const listKeys = vi.hoisted(() => vi.fn())
+const publicSettings = vi.hoisted(() => ({ api_base_url: '/api/v1', infinite_canvas_url: '' }))
 
 vi.mock('@/api/keys', () => ({
   keysAPI: { list: listKeys }
@@ -13,7 +14,7 @@ vi.mock('@/api/keys', () => ({
 
 vi.mock('@/stores', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { api_base_url: '/api/v1' }
+    cachedPublicSettings: publicSettings
   })
 }))
 
@@ -28,6 +29,51 @@ vi.mock('vue-i18n', async (importOriginal) => {
 describe('InfiniteCanvasView', () => {
   beforeEach(() => {
     listKeys.mockReset()
+    publicSettings.infinite_canvas_url = ''
+    vi.stubEnv('VITE_INFINITE_CANVAS_URL', '')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('prefers the runtime canvas URL over the build-time fallback', async () => {
+    publicSettings.infinite_canvas_url = 'https://runtime.example.com/canvas'
+    vi.stubEnv('VITE_INFINITE_CANVAS_URL', 'https://build.example.com/canvas')
+    listKeys.mockResolvedValue({ items: [{ id: 1, key: 'active-key', status: 'active' }] })
+
+    const wrapper = mount(InfiniteCanvasView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          LoadingSpinner: true,
+          RouterLink: { template: '<a><slot /></a>' }
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(new URL(wrapper.get('iframe').attributes('src')!).origin).toBe('https://runtime.example.com')
+  })
+
+  it('uses the build-time canvas URL when runtime configuration is empty', async () => {
+    vi.stubEnv('VITE_INFINITE_CANVAS_URL', 'https://build.example.com/canvas')
+    listKeys.mockResolvedValue({ items: [{ id: 1, key: 'active-key', status: 'active' }] })
+
+    const wrapper = mount(InfiniteCanvasView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          LoadingSpinner: true,
+          RouterLink: { template: '<a><slot /></a>' }
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(new URL(wrapper.get('iframe').attributes('src')!).origin).toBe('https://build.example.com')
   })
 
   it('injects the first active API key into the canvas URL', async () => {
@@ -85,6 +131,7 @@ describe('InfiniteCanvasView', () => {
     expect(frameUrl.searchParams.get('apiKey')).toBe('sk-second-key')
   })
   it('shows a configuration error instead of embedding the current page', async () => {
+    publicSettings.infinite_canvas_url = `${window.location.origin}/infinite-canvas`
     const originalPath = window.location.pathname
     window.history.pushState({}, '', '/infinite-canvas')
     listKeys.mockResolvedValue({ items: [{ id: 1, key: 'active-key', status: 'active' }] })

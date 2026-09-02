@@ -155,3 +155,27 @@ func TestSettingHandler_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *
 	require.True(t, resp.Data.WeChatOAuthOpenEnabled)
 	require.True(t, resp.Data.WeChatOAuthMPEnabled)
 }
+
+func TestSettingHandler_GetPublicSettings_ExposesInfiniteCanvasURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{}, &config.Config{
+		Server: config.ServerConfig{InfiniteCanvasURL: "https://canvas.example.com/app"},
+	}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			InfiniteCanvasURL string `json:"infinite_canvas_url"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Equal(t, "https://canvas.example.com/app", resp.Data.InfiniteCanvasURL)
+}
