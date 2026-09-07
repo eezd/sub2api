@@ -27,10 +27,10 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
 }
 
-max_eezd_suffix() {
+max_custom_suffix() {
   local base_version=$1
   shift
-  local prefix="v${base_version}-eezd."
+  local prefix="v${base_version}-custom."
   local max=0
   local tag suffix number
 
@@ -55,15 +55,16 @@ validate_base_version() {
 run_self_test() {
   local actual
 
-  actual=$(max_eezd_suffix "0.1.185" \
-    "v0.1.185-eezd.1" \
-    "v0.1.185-eezd.9" \
-    "v0.1.185-eezd.02" \
-    "v0.1.185-eezd.bad" \
-    "v0.1.186-eezd.20")
+  actual=$(max_custom_suffix "0.1.185" \
+    "v0.1.185-custom.1" \
+    "v0.1.185-custom.9" \
+    "v0.1.185-custom.02" \
+    "v0.1.185-custom.bad" \
+    "v0.1.185-eezd.99" \
+    "v0.1.186-custom.20")
   [[ "$actual" == "9" ]] || fail "suffix test failed: expected 9, got $actual"
 
-  actual=$(max_eezd_suffix "1.2.3")
+  actual=$(max_custom_suffix "1.2.3")
   [[ "$actual" == "0" ]] || fail "empty suffix test failed: expected 0, got $actual"
 
   validate_base_version "0.1.185"
@@ -148,13 +149,13 @@ UPSTREAM_RELEASE_TAG=$(gh api "repos/${PARENT_REPO}/releases/latest" --jq .tag_n
 UPSTREAM_VERSION=${UPSTREAM_RELEASE_TAG#v}
 validate_base_version "$UPSTREAM_VERSION"
 
-mapfile -t VERSION_TAGS < <(git tag --list "v${UPSTREAM_VERSION}-eezd.*")
-MAX_SUFFIX=$(max_eezd_suffix "$UPSTREAM_VERSION" "${VERSION_TAGS[@]}")
-NEXT_TAG="v${UPSTREAM_VERSION}-eezd.$((MAX_SUFFIX + 1))"
+mapfile -t VERSION_TAGS < <(git tag --list "v${UPSTREAM_VERSION}-custom.*")
+MAX_SUFFIX=$(max_custom_suffix "$UPSTREAM_VERSION" "${VERSION_TAGS[@]}")
+NEXT_TAG="v${UPSTREAM_VERSION}-custom.$((MAX_SUFFIX + 1))"
 PLAN_RELEASE=$NEXT_TAG
 
 if (( MAX_SUFFIX > 0 )); then
-  PLAN_LATEST_TAG="v${UPSTREAM_VERSION}-eezd.${MAX_SUFFIX}"
+  PLAN_LATEST_TAG="v${UPSTREAM_VERSION}-custom.${MAX_SUFFIX}"
   PLAN_HEAD=""
   if git merge-base --is-ancestor "$UPSTREAM_HEAD" "$LOCAL_HEAD" && git merge-base --is-ancestor "$ORIGIN_HEAD" "$LOCAL_HEAD"; then
     PLAN_HEAD=$LOCAL_HEAD
@@ -204,11 +205,11 @@ RELEASER_CONTENT=$(<.goreleaser.yaml)
 
 BASE_VERSION=$UPSTREAM_VERSION
 
-mapfile -t VERSION_TAGS < <(git tag --list "v${BASE_VERSION}-eezd.*")
-MAX_SUFFIX=$(max_eezd_suffix "$BASE_VERSION" "${VERSION_TAGS[@]}")
+mapfile -t VERSION_TAGS < <(git tag --list "v${BASE_VERSION}-custom.*")
+MAX_SUFFIX=$(max_custom_suffix "$BASE_VERSION" "${VERSION_TAGS[@]}")
 LATEST_TAG=""
 if (( MAX_SUFFIX > 0 )); then
-  LATEST_TAG="v${BASE_VERSION}-eezd.${MAX_SUFFIX}"
+  LATEST_TAG="v${BASE_VERSION}-custom.${MAX_SUFFIX}"
 fi
 
 CURRENT_HEAD=$(git rev-parse 'HEAD^{commit}')
@@ -222,7 +223,7 @@ if [[ -n "$LATEST_TAG" && $(git rev-list -n 1 "$LATEST_TAG") == "$CURRENT_HEAD" 
   RELEASE_TAG=$LATEST_TAG
   printf 'Reusing unreleased tag at current HEAD: %s\n' "$RELEASE_TAG"
 else
-  RELEASE_TAG="v${BASE_VERSION}-eezd.$((MAX_SUFFIX + 1))"
+  RELEASE_TAG="v${BASE_VERSION}-custom.$((MAX_SUFFIX + 1))"
 fi
 
 if [[ $(git rev-parse 'HEAD^{commit}') != $(git rev-parse 'refs/remotes/origin/main^{commit}') ]]; then

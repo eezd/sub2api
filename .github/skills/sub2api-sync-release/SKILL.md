@@ -1,6 +1,6 @@
 ---
 name: sub2api-sync-release
-description: Sync the eezd/sub2api fork with the latest Wei-Shaw/sub2api main branch, preserve fork release customizations, derive the next vX.Y.Z-eezd.N version, push the fork main branch and tag, publish GitHub Release plus multi-architecture GHCR images, and verify the result. Use when the user asks to 拉取上游、同步最新版、更新 fork、发布 SUB2API、新版本发布、sync upstream, or release eezd/sub2api.
+description: Sync the eezd/sub2api fork with the latest Wei-Shaw/sub2api main branch, preserve fork release customizations, derive the next vX.Y.Z-custom.N version, push the fork main branch and tag, publish GitHub Release plus multi-architecture GHCR images, and verify the result. Use when the user asks to 拉取上游、同步最新版、更新 fork、发布 SUB2API、新版本发布、sync upstream, or release eezd/sub2api.
 ---
 
 # Sub2API Sync Release
@@ -37,7 +37,7 @@ The script MUST:
 - derive the base version from the parent repository's latest formal GitHub Release tag, not from an unreleased tag or branch guess;
 - reuse an unreleased tag pointing at `HEAD`, making retries idempotent;
 - avoid creating a duplicate release when the current `HEAD` is already released;
-- publish `vX.Y.Z-eezd.N`, incrementing `N` within the current upstream base version;
+- publish `vX.Y.Z-custom.N`, incrementing `N` within the current upstream base version; preserve existing `-eezd.N` tags without rewriting them;
 - wait for the tag-triggered workflow and fall back to `workflow_dispatch` when GitHub does not register a tag run;
 - verify the final GitHub Release and GHCR multi-architecture manifest.
 

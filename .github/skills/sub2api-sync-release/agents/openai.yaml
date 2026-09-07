@@ -1,6 +1,6 @@
 interface:
   display_name: "Sub2API Sync Release"
-  short_description: "Sync upstream and publish an eezd Sub2API release"
+  short_description: "Sync upstream and publish a custom Sub2API release"
   default_prompt: "Use $sub2api-sync-release to sync eezd/sub2api with its upstream and publish the next verified release safely."
 
 policy:
