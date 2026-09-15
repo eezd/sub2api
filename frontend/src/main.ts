@@ -23,7 +23,11 @@ function initIOSViewportZoomFix() {
 }
 
 function initThemeClass() {
-  document.documentElement.classList.remove('dark')
+  const savedTheme = localStorage.getItem('theme')
+  const shouldUseDark =
+    savedTheme === 'dark' ||
+    (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.classList.toggle('dark', shouldUseDark)
 }
 
 async function bootstrap() {

@@ -5,61 +5,47 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 主色调 - 与首页一致的墨绿 / 鼠尾草绿
+        // 主色调 - Teal/Cyan 青色系
         primary: {
-          50: '#f0f4e8',
-          100: '#dce7c7',
-          200: '#c3d5ac',
-          300: '#a6c193',
-          400: '#82ab83',
-          500: '#295747',
-          600: '#173f35',
-          700: '#12372e',
-          800: '#102f28',
-          900: '#0d2923',
-          950: '#081d18'
+          50: '#f0fdfa',
+          100: '#ccfbf1',
+          200: '#99f6e4',
+          300: '#5eead4',
+          400: '#2dd4bf',
+          500: '#14b8a6',
+          600: '#0d9488',
+          700: '#0f766e',
+          800: '#115e59',
+          900: '#134e4a',
+          950: '#042f2e'
         },
-        // 中性色统一偏暖；保留状态色与模型品牌色。
-        gray: {
-          50: '#f5f4ed',
-          100: '#eeeee5',
-          200: '#d9dfd3',
-          300: '#bdc8b9',
-          400: '#879584',
-          500: '#657461',
-          600: '#52644f',
-          700: '#3e5544',
-          800: '#294b3c',
-          900: '#173f35',
-          950: '#102c25'
-        },
-        // 辅助中性色 - 绿色调灰阶
+        // 辅助色 - 深蓝灰
         accent: {
-          50: '#f5f4ed',
-          100: '#eeeee5',
-          200: '#d9dfd3',
-          300: '#bdc8b9',
-          400: '#879584',
-          500: '#657461',
-          600: '#52644f',
-          700: '#3e5544',
-          800: '#294b3c',
-          900: '#173f35',
-          950: '#102c25'
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          300: '#cbd5e1',
+          400: '#94a3b8',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+          950: '#020617'
         },
         // 深色模式背景
         dark: {
-          50: '#f5f4ed',
-          100: '#e8ede3',
-          200: '#d5dfd0',
-          300: '#b6c6b7',
-          400: '#90a596',
-          500: '#6e8979',
-          600: '#4c695b',
-          700: '#314d40',
-          800: '#20392f',
-          900: '#14291f',
-          950: '#0c1c16'
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          300: '#cbd5e1',
+          400: '#94a3b8',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+          950: '#020617'
         }
       },
       fontFamily: {
@@ -81,20 +67,20 @@ export default {
       boxShadow: {
         glass: '0 8px 32px rgba(0, 0, 0, 0.08)',
         'glass-sm': '0 4px 16px rgba(0, 0, 0, 0.06)',
-        glow: '0 0 20px rgba(41, 87, 71, 0.25)',
-        'glow-lg': '0 0 40px rgba(41, 87, 71, 0.35)',
+        glow: '0 0 20px rgba(20, 184, 166, 0.25)',
+        'glow-lg': '0 0 40px rgba(20, 184, 166, 0.35)',
         card: '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)',
         'card-hover': '0 10px 40px rgba(0, 0, 0, 0.08)',
         'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(135deg, #295747 0%, #173f35 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #20392f 0%, #14291f 100%)',
+        'gradient-primary': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
+        'gradient-dark': 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
         'gradient-glass':
           'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
         'mesh-gradient':
-          'radial-gradient(at 40% 20%, rgba(130, 171, 131, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(231, 120, 70, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(130, 171, 131, 0.08) 0px, transparent 50%)'
+          'radial-gradient(at 40% 20%, rgba(20, 184, 166, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(20, 184, 166, 0.08) 0px, transparent 50%)'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
