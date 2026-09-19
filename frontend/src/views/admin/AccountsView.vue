@@ -286,6 +286,16 @@
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
           </template>
+          <template #cell-recent_requests="{ row }">
+            <RecentRequestsCell
+              :account-id="row.id"
+              :account-name="row.name"
+              :requests="recentRequestsByAccountId[String(row.id)] ?? []"
+              :loading="recentRequestsLoading && !hasRecentRequestsSnapshot(row.id)"
+              :load-error="recentRequestsError !== null"
+              :stale="recentRequestsStale"
+            />
+          </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
@@ -520,6 +530,7 @@ import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vu
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
+import RecentRequestsCell from '@/components/account/RecentRequestsCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
@@ -532,6 +543,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
+import type { OpsRequestDetail } from '@/api/admin/ops'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
@@ -704,6 +716,16 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+const recentRequestsByAccountId = ref<Record<string, OpsRequestDetail[]>>({})
+const recentRequestsLoading = ref(false)
+const recentRequestsError = ref<string | null>(null)
+const recentRequestsStale = computed(() => (
+  recentRequestsError.value !== null && Object.keys(recentRequestsByAccountId.value).length > 0
+))
+const pendingRecentRequestsRefresh = ref(false)
+let recentRequestsAbortController: AbortController | null = null
+let recentRequestsRequestVersion = 0
+let recentRequestsInFlight = false
 
 const desktopViewportQuery = '(min-width: 768px)'
 const isDesktopViewport = ref(
@@ -906,6 +928,63 @@ const refreshTodayStatsBatch = async () => {
     }
   }
 }
+const hasRecentRequestsSnapshot = (accountID: number): boolean => (
+  Object.prototype.hasOwnProperty.call(recentRequestsByAccountId.value, String(accountID))
+)
+
+
+const refreshRecentRequests = async (options: { force?: boolean } = {}): Promise<void> => {
+  const accountIDs = accounts.value.map(account => account.id)
+  if (hiddenColumns.has('recent_requests') || accountIDs.length === 0) {
+    recentRequestsAbortController?.abort()
+    recentRequestsAbortController = null
+    recentRequestsRequestVersion += 1
+    recentRequestsInFlight = false
+    recentRequestsLoading.value = false
+    recentRequestsError.value = null
+    recentRequestsByAccountId.value = {}
+    return
+  }
+
+  if (recentRequestsInFlight && !options.force) return
+  if (options.force) recentRequestsAbortController?.abort()
+
+  const controller = new AbortController()
+  const requestVersion = ++recentRequestsRequestVersion
+  const accountIDSignature = accountIDs.join(',')
+  recentRequestsAbortController = controller
+  recentRequestsInFlight = true
+  recentRequestsLoading.value = true
+
+  try {
+    const result = await adminAPI.ops.listRecentRequestsByAccounts(accountIDs, { signal: controller.signal })
+    if (requestVersion !== recentRequestsRequestVersion) return
+    if (accounts.value.map(account => account.id).join(',') !== accountIDSignature) return
+
+    const currentIDs = new Set(accountIDs)
+    const nextRequests: Record<string, OpsRequestDetail[]> = Object.fromEntries(
+      accountIDs.map(accountID => [String(accountID), []])
+    )
+    for (const group of result.items ?? []) {
+      if (!currentIDs.has(group.account_id)) continue
+      nextRequests[String(group.account_id)] = Array.isArray(group.requests) ? group.requests : []
+    }
+    recentRequestsByAccountId.value = nextRequests
+    recentRequestsError.value = null
+  } catch (error) {
+    if (requestVersion !== recentRequestsRequestVersion) return
+    const requestError = error as { name?: string; code?: string }
+    if (requestError.name === 'AbortError' || requestError.name === 'CanceledError' || requestError.code === 'ERR_CANCELED') return
+    recentRequestsError.value = 'Failed'
+    console.error('Failed to load recent account requests:', error)
+  } finally {
+    if (requestVersion === recentRequestsRequestVersion) {
+      recentRequestsAbortController = null
+      recentRequestsInFlight = false
+      recentRequestsLoading.value = false
+    }
+  }
+}
 
 const autoRefreshIntervalLabel = (sec: number) => {
   if (sec === 5) return t('admin.accounts.refreshInterval5s')
@@ -1056,6 +1135,21 @@ const toggleColumn = (key: string) => {
       console.error('Failed to reload accounts after toggling scheduler score column:', error)
     })
   }
+  if (key === 'recent_requests') {
+    if (hiddenColumns.has(key)) {
+      pauseRecentRequestsRefresh()
+      recentRequestsAbortController?.abort()
+      recentRequestsAbortController = null
+      recentRequestsRequestVersion += 1
+      recentRequestsInFlight = false
+      recentRequestsLoading.value = false
+      recentRequestsError.value = null
+      recentRequestsByAccountId.value = {}
+    } else {
+      resumeRecentRequestsRefresh()
+      void refreshRecentRequests({ force: true })
+    }
+  }
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
@@ -1159,9 +1253,14 @@ const load = async (options: AccountLoadOptions = {}) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
+  pendingRecentRequestsRefresh.value = false
   requestParams.lite = '1'
   await baseLoad()
-  if (options.refreshTodayStats !== false) await refreshTodayStatsBatch()
+  if (options.refreshTodayStats !== false) {
+    await Promise.all([refreshTodayStatsBatch(), refreshRecentRequests({ force: true })])
+  } else {
+    await refreshRecentRequests({ force: true })
+  }
 }
 
 const reload = async () => {
@@ -1169,8 +1268,9 @@ const reload = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
+  pendingRecentRequestsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshRecentRequests({ force: true })])
 }
 
 const buildUpstreamBillingRateFilters = () => {
@@ -1293,6 +1393,7 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingRecentRequestsRefresh.value = true
   baseDebouncedReload()
 }
 
@@ -1301,6 +1402,7 @@ const handlePageChange = (page: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingRecentRequestsRefresh.value = true
   baseHandlePageChange(page)
 }
 
@@ -1309,6 +1411,7 @@ const handlePageSizeChange = (size: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingRecentRequestsRefresh.value = true
   baseHandlePageSizeChange(size)
 }
 
@@ -1336,6 +1439,10 @@ watch(loading, (isLoading, wasLoading) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
   }
+  if (wasLoading && !isLoading && pendingRecentRequestsRefresh.value) {
+    pendingRecentRequestsRefresh.value = false
+    void refreshRecentRequests({ force: true })
+  }
 })
 
 watch(accounts, (rows) => {
@@ -1351,6 +1458,9 @@ watch(accounts, (rows) => {
   )
   usageBatchRequestTokenByAccountId.value = Object.fromEntries(
     Object.entries(usageBatchRequestTokenByAccountId.value).filter(([key]) => visibleIDs.has(key))
+  )
+  recentRequestsByAccountId.value = Object.fromEntries(
+    Object.entries(recentRequestsByAccountId.value).filter(([key]) => visibleIDs.has(key))
   )
 })
 
@@ -1372,6 +1482,19 @@ const isAnyModalOpen = computed(() => {
     showTLSFingerprintProfiles.value
   )
 })
+
+const { pause: pauseRecentRequestsRefresh, resume: resumeRecentRequestsRefresh } = useIntervalFn(
+  () => {
+    if (hiddenColumns.has('recent_requests')) return
+    if (document.hidden || loading.value || autoRefreshFetching.value || recentRequestsInFlight) return
+    if (isAnyModalOpen.value) return
+    if (menu.show || showAccountToolsDropdown.value || showAutoRefreshDropdown.value) return
+    if (accounts.value.length === 0) return
+    void refreshRecentRequests()
+  },
+  5000,
+  { immediate: false }
+)
 
 const enterAutoRefreshSilentWindow = () => {
   autoRefreshSilentUntil.value = Date.now() + AUTO_REFRESH_SILENT_WINDOW_MS
@@ -1462,10 +1585,14 @@ const refreshAccountsIncrementally = async () => {
       autoRefreshETag.value = result.etag
     }
     if (!result.notModified && result.data) {
+      const previousAccountIDs = accounts.value.map(account => account.id).join(',')
       pagination.total = result.data.total || 0
       pagination.pages = result.data.pages || 0
       mergeAccountsIncrementally(result.data.items || [])
       hasPendingListSync.value = false
+      if (accounts.value.map(account => account.id).join(',') !== previousAccountIDs) {
+        await refreshRecentRequests({ force: true })
+      }
     }
     upstreamBillingNow.value = Date.now()
 
@@ -1786,6 +1913,7 @@ const allColumns = computed(() => {
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
+    { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
@@ -2551,6 +2679,7 @@ onMounted(async () => {
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
+  if (!hiddenColumns.has('recent_requests')) resumeRecentRequestsRefresh()
 
   if (autoRefreshEnabled.value) {
     autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
@@ -2561,6 +2690,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  pauseRecentRequestsRefresh()
+  recentRequestsAbortController?.abort()
+  recentRequestsAbortController = null
+  recentRequestsRequestVersion += 1
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

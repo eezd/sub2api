@@ -119,6 +119,11 @@ export interface OpsRequestDetail {
   duration_ms?: number | null
   first_token_ms?: number | null
   status_code?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  actual_cost?: number | null
+  account_cost?: number | null
+  account_rate_multiplier?: number | null
 
   error_id?: number | null
   phase?: string
@@ -161,6 +166,18 @@ export interface OpsRequestDetailsParams {
 }
 
 export type OpsRequestDetailsResponse = PaginatedResponse<OpsRequestDetail>
+
+export interface OpsAccountRecentRequestGroup {
+  account_id: number
+  requests: OpsRequestDetail[]
+}
+
+export interface OpsAccountRecentRequestsResponse {
+  start_time: string
+  end_time: string
+  limit_per_account: number
+  items: OpsAccountRecentRequestGroup[]
+}
 
 export interface OpsLatencyHistogramBucket {
   range: string
@@ -1174,6 +1191,18 @@ export async function listRequestDetails(params: OpsRequestDetailsParams): Promi
   return data
 }
 
+export async function listRecentRequestsByAccounts(
+  accountIds: number[],
+  options: OpsRequestOptions = {}
+): Promise<OpsAccountRecentRequestsResponse> {
+  const { data } = await apiClient.post<OpsAccountRecentRequestsResponse>(
+    '/admin/ops/requests/recent-by-account',
+    { account_ids: accountIds },
+    { signal: options.signal }
+  )
+  return data
+}
+
 // Alert rules
 export async function listAlertRules(): Promise<AlertRule[]> {
   const { data } = await apiClient.get<AlertRule[]>('/admin/ops/alert-rules')
@@ -1336,6 +1365,7 @@ export const opsAPI = {
   listRequestErrorUpstreamErrors,
 
   listRequestDetails,
+  listRecentRequestsByAccounts,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

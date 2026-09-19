@@ -552,6 +552,42 @@ func (h *OpsHandler) ResolveUpstreamError(c *gin.Context) {
 
 // ==================== Existing endpoints ====================
 
+type opsAccountRecentRequestsRequest struct {
+	AccountIDs []int64 `json:"account_ids"`
+}
+
+// ListRecentRequestsByAccounts returns the latest requests for each requested account.
+// POST /api/v1/admin/ops/requests/recent-by-account
+func (h *OpsHandler) ListRecentRequestsByAccounts(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+
+	var req opsAccountRecentRequestsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.AccountIDs) < 1 || len(req.AccountIDs) > 1000 {
+		response.BadRequest(c, "account_ids must contain between 1 and 1000 items")
+		return
+	}
+	for _, accountID := range req.AccountIDs {
+		if accountID <= 0 {
+			response.BadRequest(c, "account_ids must contain only positive integers")
+			return
+		}
+	}
+
+	out, err := h.opsService.ListRecentRequestsByAccounts(c.Request.Context(), req.AccountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, out)
+}
+
 // ListRequestDetails returns a request-level list (success + error) for drill-down.
 // GET /api/v1/admin/ops/requests
 func (h *OpsHandler) ListRequestDetails(c *gin.Context) {

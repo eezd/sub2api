@@ -11,6 +11,7 @@ const {
   getById,
   getBatchTodayStats,
   getUpstreamBillingProbeSettings,
+  listRecentRequestsByAccounts,
   getAllProxies,
   getAllGroups,
   refreshCredentials,
@@ -22,6 +23,7 @@ const {
   getById: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
+  listRecentRequestsByAccounts: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   refreshCredentials: vi.fn(),
@@ -44,7 +46,8 @@ vi.mock('@/api/admin', () => ({
       refreshCredentials
     },
     proxies: { getAll: getAllProxies },
-    groups: { getAll: getAllGroups }
+    groups: { getAll: getAllGroups },
+    ops: { listRecentRequestsByAccounts }
   }
 }))
 
@@ -62,11 +65,15 @@ vi.mock('vue-i18n', async () => {
 })
 
 const DataTableStub = defineComponent({
-  props: { data: { type: Array, default: () => [] } },
+  props: {
+    data: { type: Array, default: () => [] },
+    columns: { type: Array, default: () => [] }
+  },
   template: `
     <div>
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-recent_requests" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
     </div>
@@ -92,6 +99,18 @@ const AccountStatsModalStub = defineComponent({
   props: { show: Boolean, account: { type: Object, default: null } },
   template: '<div data-test="stats-account">{{ show ? account?.name : "" }}</div>'
 })
+const PaginationStub = defineComponent({
+  emits: ['update:page'],
+  template: '<button data-test="next-page" @click="$emit(\'update:page\', 2)">next</button>'
+})
+
+const RecentRequestsCellStub = defineComponent({
+  props: {
+    requests: { type: Array, default: () => [] },
+    loading: Boolean
+  },
+  template: '<span data-test="recent-request-ids" :data-loading="String(loading)">{{ requests.map(request => request.request_id).join(",") }}</span>'
+})
 
 function mountView(stubActionMenu = true) {
   return mount(AccountsView, {
@@ -101,10 +120,10 @@ function mountView(stubActionMenu = true) {
         AppLayout: { template: '<div><slot /></div>' },
         TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
         DataTable: DataTableStub,
-        AccountTableActions: { template: '<div><slot name="after" /></div>' },
+        AccountTableActions: { template: '<div><button data-test="manual-refresh" @click="$emit(\'refresh\')">refresh</button><slot name="after" /></div>' },
         AccountTableFilters: true,
         AccountBulkActionsBar: true,
-        Pagination: true,
+        Pagination: PaginationStub,
         ConfirmDialog: true,
         AccountActionMenu: stubActionMenu,
         ImportDataModal: true,
@@ -126,6 +145,7 @@ function mountView(stubActionMenu = true) {
         AccountGroupsCell: AccountGroupsCellStub,
         AccountUsageCell: true,
         UpstreamBillingRateCell: true,
+        RecentRequestsCell: RecentRequestsCellStub,
         HelpTooltip: true,
         Icon: true,
         Teleport: stubActionMenu
@@ -163,6 +183,12 @@ describe('admin AccountsView lite account list', () => {
     listWithEtag.mockReset().mockResolvedValue({ notModified: true, etag: 'compact-etag', data: null })
     getById.mockReset().mockResolvedValue(fullAccount)
     getBatchTodayStats.mockReset().mockResolvedValue({ stats: {} })
+    listRecentRequestsByAccounts.mockReset().mockResolvedValue({
+      start_time: '2026-09-19T00:00:00Z',
+      end_time: '2026-09-19T00:15:00Z',
+      limit_per_account: 5,
+      items: [{ account_id: 42, requests: [] }]
+    })
     getUpstreamBillingProbeSettings.mockReset().mockResolvedValue({ enabled: true })
     getAllProxies.mockReset().mockResolvedValue([])
     getAllGroups.mockReset().mockResolvedValue([{ id: 7, name: 'codex', platform: 'openai' }])
@@ -276,6 +302,91 @@ describe('admin AccountsView lite account list', () => {
     expect(refreshCredentials).toHaveBeenCalledWith(42)
     expect(wrapper.get('[data-account-name]').attributes('data-account-name')).toBe('refreshed account')
     expect(showWarning).toHaveBeenCalledWith('Token refreshed, but project_id is temporarily unavailable')
+    wrapper.unmount()
+  })
+
+  it('places recent requests after capacity and batches the visible account ids', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string }>
+    const capacityIndex = columns.findIndex(column => column.key === 'capacity')
+    expect(columns[capacityIndex + 1]?.key).toBe('recent_requests')
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(1)
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledWith(
+      [42],
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
+    wrapper.unmount()
+  })
+
+  it('polls one batch at a time, pauses while hidden, and refreshes immediately when shown', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    const wrapper = mountView()
+    await flushPromises()
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(1)
+
+    const poll = Promise.withResolvers<{ items: [] }>()
+    listRecentRequestsByAccounts.mockReturnValueOnce(poll.promise)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-test="recent-request-ids"]').attributes('data-loading')).toBe('false')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(2)
+    poll.resolve({ items: [] })
+    await flushPromises()
+
+    const moreActions = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.moreActions'))!
+    await moreActions.trigger('click')
+    const recentColumn = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.columns.recentRequests')!
+    await recentColumn.trigger('click')
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(2)
+
+    await recentColumn.trigger('click')
+    await flushPromises()
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
+
+  it('force refreshes manually and stops polling after unmount', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="manual-refresh"]').trigger('click')
+    await flushPromises()
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(listRecentRequestsByAccounts).toHaveBeenCalledTimes(2)
+  })
+  it('drops an old-page response after pagination changes the visible accounts', async () => {
+    const oldPage = Promise.withResolvers<{ items: Array<{ account_id: number; requests: Array<{ request_id: string }> }> }>()
+    listRecentRequestsByAccounts.mockReset()
+      .mockReturnValueOnce(oldPage.promise)
+      .mockResolvedValueOnce({ items: [{ account_id: 84, requests: [{ request_id: 'new-page' }] }] })
+    listAccounts.mockReset()
+      .mockResolvedValueOnce({ items: [listRow], total: 2, page: 1, page_size: 20, pages: 2 })
+      .mockResolvedValueOnce({ items: [{ ...listRow, id: 84, name: 'next page' }], total: 2, page: 2, page_size: 20, pages: 2 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(listRecentRequestsByAccounts).toHaveBeenLastCalledWith(
+      [84],
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
+    expect(wrapper.get('[data-test="recent-request-ids"]').text()).toBe('new-page')
+
+    oldPage.resolve({ items: [{ account_id: 42, requests: [{ request_id: 'old-page' }] }] })
+    await flushPromises()
+    expect(wrapper.get('[data-test="recent-request-ids"]').text()).toBe('new-page')
     wrapper.unmount()
   })
 

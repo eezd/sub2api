@@ -22,9 +22,14 @@ type OpsRequestDetail struct {
 	Platform string `json:"platform,omitempty"`
 	Model    string `json:"model,omitempty"`
 
-	DurationMs   *int `json:"duration_ms,omitempty"`
-	FirstTokenMs *int `json:"first_token_ms,omitempty"`
-	StatusCode   *int `json:"status_code,omitempty"`
+	DurationMs            *int     `json:"duration_ms,omitempty"`
+	FirstTokenMs          *int     `json:"first_token_ms,omitempty"`
+	StatusCode            *int     `json:"status_code,omitempty"`
+	InputTokens           *int     `json:"input_tokens,omitempty"`
+	OutputTokens          *int     `json:"output_tokens,omitempty"`
+	ActualCost            *float64 `json:"actual_cost,omitempty"`
+	AccountCost           *float64 `json:"account_cost,omitempty"`
+	AccountRateMultiplier *float64 `json:"account_rate_multiplier,omitempty"`
 
 	// When Kind == "error", ErrorID links to /admin/ops/errors/:id.
 	ErrorID *int64 `json:"error_id,omitempty"`

@@ -7,13 +7,14 @@ import (
 
 // opsRepoMock is a test-only OpsRepository implementation with optional function hooks.
 type opsRepoMock struct {
-	InsertErrorLogFn              func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
-	BatchInsertErrorLogsFn        func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
-	GetErrorLogByIDFn             func(ctx context.Context, id int64) (*OpsErrorLogDetail, error)
-	BatchInsertSystemLogsFn       func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
-	ListSystemLogsFn              func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
-	DeleteSystemLogsFn            func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
-	InsertSystemLogCleanupAuditFn func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
+	InsertErrorLogFn               func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
+	BatchInsertErrorLogsFn         func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
+	GetErrorLogByIDFn              func(ctx context.Context, id int64) (*OpsErrorLogDetail, error)
+	ListRecentRequestsByAccountsFn func(context.Context, []int64, time.Time, time.Time, int) ([]*OpsRequestDetail, error)
+	BatchInsertSystemLogsFn        func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
+	ListSystemLogsFn               func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
+	DeleteSystemLogsFn             func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
+	InsertSystemLogCleanupAuditFn  func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
 }
 
 func (m *opsRepoMock) InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error) {
@@ -43,6 +44,13 @@ func (m *opsRepoMock) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorL
 
 func (m *opsRepoMock) ListRequestDetails(ctx context.Context, filter *OpsRequestDetailFilter) ([]*OpsRequestDetail, int64, error) {
 	return []*OpsRequestDetail{}, 0, nil
+}
+
+func (m *opsRepoMock) ListRecentRequestsByAccounts(ctx context.Context, accountIDs []int64, startTime, endTime time.Time, limitPerAccount int) ([]*OpsRequestDetail, error) {
+	if m.ListRecentRequestsByAccountsFn != nil {
+		return m.ListRecentRequestsByAccountsFn(ctx, accountIDs, startTime, endTime, limitPerAccount)
+	}
+	return []*OpsRequestDetail{}, nil
 }
 
 func (m *opsRepoMock) BatchInsertSystemLogs(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error) {

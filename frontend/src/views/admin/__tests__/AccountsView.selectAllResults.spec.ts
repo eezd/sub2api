@@ -40,6 +40,9 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: getAllGroups
+    },
+    ops: {
+      listRecentRequestsByAccounts: vi.fn().mockResolvedValue({ items: [] })
     }
   }
 }))
