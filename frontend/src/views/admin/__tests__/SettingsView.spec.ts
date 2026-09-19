@@ -751,6 +751,11 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
       .toBe("socks5h://user:new-secret@new.example.com:1080");
     expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
+    updateSettings.mockClear();
+    await input.setValue("");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url).toBe("");
     wrapper.unmount();
   });
 

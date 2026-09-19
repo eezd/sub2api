@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	openAICodexTicketExtraKeyPrefix  = "codex_turn_ticket:"
-	openAICodexAstraMinVersion       = "0.153.4"
-	openAICodexTicketStatePrefix     = "gAAAAA"
-	openAICodexTicketDefaultModel    = "gpt-6-astra"
-	openAICodexTicketDefaultSolModel = "gpt-5.6-sol"
+	openAICodexTicketExtraKeyPrefix      = "codex_turn_ticket:"
+	openAICodexAstraMinVersion           = "0.153.4"
+	openAICodexTicketStatePrefix         = "gAAAAA"
+	openAICodexTicketDefaultModel        = "gpt-6-astra"
+	openAICodexTicketDefaultSolModel     = "gpt-5.6-sol"
+	openAICodexTicketMaxConcurrentProbes = 16
 )
 
 // ErrOpenAICodexTicketUnavailable 表示该号该模型没有可用的 292 门票，
@@ -491,7 +492,8 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	cfg := s.openAICodexTicketConfig()
 	now := time.Now()
 	refreshBefore := time.Duration(cfg.RefreshBeforeSeconds) * time.Second
-	var wg sync.WaitGroup
+	var probes errgroup.Group
+	probes.SetLimit(openAICodexTicketMaxConcurrentProbes)
 	probed := 0
 	for i := range accounts {
 		account := accounts[i]
@@ -512,14 +514,13 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 			acc.Extra = maps.Clone(account.Extra)
 			acc.Credentials = maps.Clone(account.Credentials)
 			probed++
-			wg.Add(1)
-			go func(acc Account, model string) {
-				defer wg.Done()
+			probes.Go(func() error {
 				s.probeOnceOpenAICodexTicket(ctx, &acc, model)
-			}(acc, model)
+				return nil
+			})
 		}
 	}
-	wg.Wait()
+	_ = probes.Wait()
 	if probed > 0 {
 		logger.L().Info("openai_codex_ticket probe cycle", zap.Int("probed", probed))
 	}

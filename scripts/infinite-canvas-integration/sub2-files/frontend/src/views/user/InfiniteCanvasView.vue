@@ -218,8 +218,14 @@ const canvasStatus = ref<CanvasStatus>('idle')
 const showAgentGuide = ref(false)
 const agentStatus = ref<AgentStatus>('checking')
 const agentCommandCopied = ref(false)
-const canvasUrl = normalizeCanvasAppPath()
-const canvasEntryUrl = buildCanvasEntryUrl(window.location.origin)
+const configuredCanvasUrl = computed(() => (
+  appStore.cachedPublicSettings?.infinite_canvas_url?.trim()
+  || import.meta.env.VITE_INFINITE_CANVAS_URL?.trim()
+  || '/canvas-app/'
+))
+const canvasUrl = computed(() => normalizeCanvasAppPath(configuredCanvasUrl.value))
+const canvasOrigin = computed(() => new URL(canvasUrl.value, window.location.origin).origin)
+const canvasEntryUrl = computed(() => buildCanvasEntryUrl(window.location.origin, canvasUrl.value))
 let agentCheckController: AbortController | null = null
 let agentCheckTimer: ReturnType<typeof setTimeout> | null = null
 let agentCopyTimer: ReturnType<typeof setTimeout> | null = null
@@ -267,17 +273,17 @@ function sendCanvasConfig() {
       theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
       locale: getLocale() === 'zh' ? 'zh-CN' : 'en-US',
     }),
-    window.location.origin
+    canvasOrigin.value
   )
 }
 
 function handleMessage(event: MessageEvent) {
   const target = canvasFrame.value?.contentWindow ?? null
-  if (isTrustedCanvasReadyMessage(event, target, window.location.origin)) {
+  if (isTrustedCanvasReadyMessage(event, target, canvasOrigin.value)) {
     sendCanvasConfig()
     return
   }
-  if (isTrustedCanvasConfiguredMessage(event, target, window.location.origin)) {
+  if (isTrustedCanvasConfiguredMessage(event, target, canvasOrigin.value)) {
     clearConnectTimer()
     canvasStatus.value = 'ready'
   }
@@ -297,7 +303,7 @@ function reloadCanvas() {
 }
 
 function openStandalone() {
-  window.open(canvasUrl, '_blank', 'noopener,noreferrer')
+  window.open(canvasUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 async function checkAgent() {
@@ -358,8 +364,16 @@ function handleKeyChange() {
 async function loadApiKeys() {
   loadingKeys.value = true
   try {
-    const response = await keysAPI.list(1, 100, { status: 'active' })
-    apiKeys.value = response.items.filter((key) => key.status === 'active' && Boolean(key.key))
+    const loadedKeys: ApiKey[] = []
+    let page = 1
+    let pages = 1
+    do {
+      const response = await keysAPI.list(page, 100, { status: 'active' })
+      loadedKeys.push(...response.items)
+      pages = Math.max(1, response.pages ?? 1)
+      page += 1
+    } while (page <= pages)
+    apiKeys.value = loadedKeys.filter((key) => key.status === 'active' && Boolean(key.key))
 
     const storedId = Number(localStorage.getItem(STORAGE_KEY))
     const storedKey = Number.isFinite(storedId)

@@ -1,26 +1,26 @@
 <template>
   <div class="landing">
     <header>
-      <a class="brand" href="#" :aria-label="`${siteName} 首页`">
+      <a class="brand" href="#" :aria-label="t('landingHome.homeLabel', { siteName })">
         <img v-if="siteLogo" :src="siteLogo" class="site-logo" alt="" />
         <span v-else class="brandmark" aria-hidden="true"><i></i><i></i></span>
         {{ siteName }}
       </a>
-      <nav aria-label="主导航">
-        <router-link v-if="showModelPlazaEntry" to="/model-plaza"
-          >模型广场</router-link
-        ><a href="#workspace">创作空间</a
+      <nav :aria-label="t('landingHome.navigationLabel')">
+        <router-link v-if="showModelPlazaEntry" to="/model-plaza">{{ t('landingHome.modelPlaza') }}</router-link
+        ><a href="#workspace">{{ t('landingHome.workspace') }}</a
         ><a
           :href="docUrl || '#connect'"
           :target="docUrl ? '_blank' : undefined"
           rel="noopener noreferrer"
-          >接入文档</a
+          >{{ t('landingHome.docs') }}</a
         >
       </nav>
       <div class="nav-end">
-        <router-link v-if="!isAuthenticated" to="/login">登录</router-link
+        <LocaleSwitcher />
+        <router-link v-if="!isAuthenticated" class="landing-login" to="/login">{{ t('landingHome.login') }}</router-link
         ><router-link class="btn small" :to="dashboardPath"
-          >进入控制台 ↗</router-link
+          >{{ t('landingHome.console') }}</router-link
         >
       </div>
     </header>
@@ -28,24 +28,23 @@
       <section class="hero">
         <div class="hero-copy">
           <div class="eyebrow">ONE KEY. MORE POSSIBILITIES.</div>
-          <h1>连接 AI，<br />让灵感<span> 自由生长。</span></h1>
+          <h1>{{ t('landingHome.heroTitleLine1') }}<br /><span>{{ t('landingHome.heroTitleLine2') }}</span></h1>
           <p class="intro">
-            从第一行代码，到下一幅作品。<br />用一个 API
-            入口，把模型能力融入你的工作流。<br />少一点配置，多一点创造。
+            {{ t('landingHome.heroIntroLine1') }}<br />{{ t('landingHome.heroIntroLine2') }}<br />{{ t('landingHome.heroIntroLine3') }}
           </p>
           <div class="actions">
             <router-link class="btn" to="/keys"
-              >开始接入 <span>↗</span></router-link
+              >{{ t('landingHome.start') }} <span>↗</span></router-link
             ><a class="btn light" href="#connect"
-              >查看接入示例 <span>↓</span></a
+              >{{ t('landingHome.viewExample') }} <span>↓</span></a
             >
           </div>
-          <p class="hero-note">API 接入 / 编程助手 / 无限画布</p>
+          <p class="hero-note">{{ t('landingHome.heroNote') }}</p>
         </div>
         <div
           class="studio"
           role="img"
-          aria-label="统一 API 入口连接代码、对话、图像和创作工作流的概念示意图"
+          :aria-label="t('landingHome.conceptLabel')"
         >
           <div class="studio-label">THE POSSIBILITY ENGINE</div>
           <div class="studio-label right">FIG. 001</div>
@@ -73,7 +72,7 @@
         </div>
       </section>
       <div class="partners" id="models">
-        <small>探索多模型生态<br />具体可用模型以控制台为准</small
+        <small>{{ t('landingHome.modelsHint') }}<br />{{ t('landingHome.modelsDisclaimer') }}</small
         ><span>OpenAI</span><span>Claude</span><span>Gemini</span
         ><span class="mono">DeepSeek</span><span class="mono">Qwen</span>
       </div>
@@ -81,56 +80,50 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow">BUILT FOR YOUR FLOW</div>
-            <h2>一个入口，不止一种可能。</h2>
+            <h2>{{ t('landingHome.possibilitiesTitle') }}</h2>
           </div>
           <p>
-            写代码、做产品，或把脑海里的画面变成作品。<br />找到适合你的开始方式。
+            {{ t('landingHome.possibilitiesDescription') }}<br />{{ t('landingHome.possibilitiesPrompt') }}
           </p>
         </div>
         <div class="features">
           <article class="feature">
             <span class="num">01 / DEVELOP</span>
-            <h3>让工具，接上能力。</h3>
-            <p>
-              在兼容的 SDK 与开发工具中配置接口地址和 API
-              Key，延续你熟悉的开发习惯。
-            </p>
-            <a href="#connect">查看接入方式 ↗</a>
+            <h3>{{ t('landingHome.developTitle') }}</h3>
+            <p>{{ t('landingHome.developDescription') }}</p>
+            <a href="#connect">{{ t('landingHome.viewIntegration') }}</a>
           </article>
           <article class="feature">
             <span class="num">02 / EXPLORE</span>
-            <h3>把选择权，交给你。</h3>
-            <p>
-              按任务选择模型，在控制台管理密钥与查看用量。具体模型、计费及权限以站内信息为准。
-            </p>
-            <router-link :to="dashboardPath">探索控制台 ↗</router-link>
+            <h3>{{ t('landingHome.exploreTitle') }}</h3>
+            <p>{{ t('landingHome.exploreDescription') }}</p>
+            <router-link :to="dashboardPath">{{ t('landingHome.exploreConsole') }}</router-link>
           </article>
           <article class="feature canvas">
             <span class="num">03 / CREATE</span>
             <div class="mini-art" aria-hidden="true"></div>
-            <h3>灵感，不必排成一行。</h3>
-            <p>进入无限画布，把图像与想法放在一起，让创作有更大的展开空间。</p>
-            <router-link to="/workspace/canvas">打开无限画布 ↗</router-link>
+            <h3>{{ t('landingHome.createTitle') }}</h3>
+            <p>{{ t('landingHome.createDescription') }}</p>
+            <router-link to="/workspace/canvas">{{ t('landingHome.openCanvas') }}</router-link>
           </article>
         </div>
       </section>
       <section class="section integration" id="connect">
         <div>
           <div class="eyebrow">LESS SETUP. MORE BUILDING.</div>
-          <h2>从一个请求，开始。</h2>
+          <h2>{{ t('landingHome.requestTitle') }}</h2>
           <p>
-            不用重新学习一套工作方式。<br />沿用熟悉的 OpenAI
-            SDK，配置你的接入信息。
+            {{ t('landingHome.requestDescription') }}<br />{{ t('landingHome.requestPrompt') }}
           </p>
           <ol class="steps">
-            <li><b>01</b>登录控制台，创建 API Key</li>
-            <li><b>02</b>选择分组可用的模型</li>
-            <li><b>03</b>替换配置，发起第一个请求</li>
+            <li><b>01</b>{{ t('landingHome.stepCreateKey') }}</li>
+            <li><b>02</b>{{ t('landingHome.stepSelectModel') }}</li>
+            <li><b>03</b>{{ t('landingHome.stepSendRequest') }}</li>
           </ol>
         </div>
         <div class="codebox">
           <div class="codehead">
-            <div class="tabs" role="tablist" aria-label="示例语言">
+            <div class="tabs" role="tablist" :aria-label="t('landingHome.exampleLanguage')">
               <button
                 v-for="lang in languages"
                 :key="lang"
@@ -145,7 +138,7 @@
                 {{ lang === 'python' ? 'Python' : 'cURL' }}
               </button>
             </div>
-            <button class="copy" @click="copyCode">复制代码</button>
+            <button class="copy" @click="copyCode">{{ t('landingHome.copyCode') }}</button>
           </div>
           <pre
             ref="codeElement"
@@ -157,44 +150,36 @@
             >{{ code }}</pre
           >
           <div class="codefoot">
-            接入示例 · 请替换 API Key 与模型名称 · 此页面不会发送请求
+            {{ t('landingHome.codeDisclaimer') }}
           </div>
         </div>
       </section>
       <section class="faq">
         <div>
           <div class="eyebrow">GOOD TO KNOW</div>
-          <h2>开始之前。</h2>
+          <h2>{{ t('landingHome.faqTitle') }}</h2>
         </div>
         <div>
           <details>
-            <summary>我需要更换现有的开发工具吗？</summary>
-            <p>
-              通常不需要。支持自定义 Base URL
-              的兼容客户端可以使用本站入口。不同工具和模型支持的接口可能不同，接入前请确认控制台说明。
-            </p>
+            <summary>{{ t('landingHome.faqToolsQuestion') }}</summary>
+            <p>{{ t('landingHome.faqToolsAnswer') }}</p>
           </details>
           <details>
-            <summary>模型和费用在哪里查看？</summary>
-            <p>
-              请在实际控制台查看分组、可用模型和计费信息。可用模型与费用以当前分组实际信息为准。
-            </p>
+            <summary>{{ t('landingHome.faqPricingQuestion') }}</summary>
+            <p>{{ t('landingHome.faqPricingAnswer') }}</p>
           </details>
           <details>
-            <summary>无限画布如何使用？</summary>
-            <p>
-              登录后打开创作空间，选择有相应模型权限的 API
-              Key。图片等请求会按所选分组的实际规则计费。
-            </p>
+            <summary>{{ t('landingHome.faqCanvasQuestion') }}</summary>
+            <p>{{ t('landingHome.faqCanvasAnswer') }}</p>
           </details>
         </div>
       </section>
       <section class="final-cta">
         <div>
-          <h2>下一件好作品，从这里开始。</h2>
-          <p>把复杂留在接口之后，把专注留给你的想法。</p>
+          <h2>{{ t('landingHome.finalTitle') }}</h2>
+          <p>{{ t('landingHome.finalDescription') }}</p>
         </div>
-        <router-link class="btn" to="/keys">创建你的 API Key ↗</router-link>
+        <router-link class="btn" to="/keys">{{ t('landingHome.createKey') }}</router-link>
       </section>
     </main>
     <footer class="shell">
@@ -207,11 +192,14 @@
 </template>
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 const app = useAppStore()
 const auth = useAuthStore()
+const { t } = useI18n()
 const siteName = computed(
   () => app.cachedPublicSettings?.site_name || app.siteName || 'Sub2API'
 )
@@ -285,7 +273,7 @@ function changeTab(event: KeyboardEvent, lang: Language) {
 async function copyCode() {
   try {
     await navigator.clipboard.writeText(code.value)
-    toast.value = '代码已复制，请替换密钥与模型名称'
+    toast.value = t('landingHome.copied')
   } catch {
     if (codeElement.value) {
       const range = document.createRange()
@@ -293,7 +281,7 @@ async function copyCode() {
       window.getSelection()?.removeAllRanges()
       window.getSelection()?.addRange(range)
     }
-    toast.value = '代码已选中，请按 Ctrl/Cmd + C 复制'
+    toast.value = t('landingHome.selected')
   }
   clearTimeout(timer)
   timer = setTimeout(() => {
@@ -799,7 +787,7 @@ h2 {
   color: #d6e2d0;
   font-size: 11px;
 }
-.code.landing {
+.codebody {
   padding: 26px 24px;
   overflow: auto;
   min-height: 235px;
@@ -974,7 +962,7 @@ footer {
   .nav-end {
     gap: 12px;
   }
-  .nav-end > a:first-child {
+  .landing-login {
     display: none;
   }
   .shell {
@@ -1069,7 +1057,7 @@ footer {
     grid-template-columns: 1fr;
     gap: 25px;
   }
-  .code.landing {
+  .codebody {
     font-size: 11px;
     padding: 20px 16px;
   }

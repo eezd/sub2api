@@ -47,6 +47,21 @@ max_custom_suffix() {
   printf '%s\n' "$max"
 }
 
+has_required_platforms() {
+  local has_amd64=false
+  local has_arm64=false
+  local platform
+
+  for platform in "$@"; do
+    case "$platform" in
+      linux/amd64) has_amd64=true ;;
+      linux/arm64) has_arm64=true ;;
+    esac
+  done
+
+  [[ "$has_amd64" == "true" && "$has_arm64" == "true" ]]
+}
+
 validate_base_version() {
   local version=$1
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid upstream VERSION: $version"
@@ -68,6 +83,11 @@ run_self_test() {
   [[ "$actual" == "0" ]] || fail "empty suffix test failed: expected 0, got $actual"
 
   validate_base_version "0.1.185"
+
+  has_required_platforms "linux/amd64" "linux/arm64" || fail "platform verification test failed"
+  if has_required_platforms "linux/amd64"; then
+    fail "incomplete platform verification test failed"
+  fi
   printf 'self-test passed\n'
 }
 
@@ -196,7 +216,7 @@ fi
 WORKFLOW_CONTENT=$(<.github/workflows/release.yml)
 RELEASER_CONTENT=$(<.goreleaser.yaml)
 
-[[ "$WORKFLOW_CONTENT" == *'DOCKERHUB_USERNAME: skip'* ]] || fail "release contract lost: Docker Hub is not disabled"
+[[ "$WORKFLOW_CONTENT" != *'DOCKERHUB'* && "$RELEASER_CONTENT" != *'DOCKERHUB'* ]] || fail "release contract lost: Docker Hub configuration is present"
 [[ "$WORKFLOW_CONTENT" != *'sync-version-file:'* ]] || fail "release contract lost: VERSION would be committed back to main"
 [[ "$RELEASER_CONTENT" == *'use: github-native'* ]] || fail "release contract lost: GitHub-native notes are disabled"
 [[ "$RELEASER_CONTENT" == *'prerelease: false'* ]] || fail "release contract lost: releases are not forced stable"
@@ -300,8 +320,13 @@ IFS=$'\t' read -r VERIFIED_TAG IS_DRAFT IS_PRERELEASE RELEASE_URL <<<"$RELEASE_S
 IMAGE="ghcr.io/${ORIGIN_REPO,,}:${RELEASE_TAG#v}"
 
 if command -v docker >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1; then
-  docker buildx imagetools inspect "$IMAGE"
-  IMAGE_VERIFICATION="verified"
+  require_command jq
+  mapfile -t IMAGE_PLATFORMS < <(
+    docker buildx imagetools inspect "$IMAGE" --raw |
+      jq -r '.manifests[]?.platform | select(.os != null and .architecture != null) | "\(.os)/\(.architecture)"'
+  )
+  has_required_platforms "${IMAGE_PLATFORMS[@]}" || fail "GHCR manifest must contain linux/amd64 and linux/arm64; found: ${IMAGE_PLATFORMS[*]:-none}"
+  IMAGE_VERIFICATION="verified: ${IMAGE_PLATFORMS[*]}"
 else
   IMAGE_VERIFICATION="skipped: docker buildx is unavailable"
 fi

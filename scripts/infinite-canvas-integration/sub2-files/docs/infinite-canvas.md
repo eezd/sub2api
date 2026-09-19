@@ -1,6 +1,6 @@
 # Infinite Canvas 集成与运维
 
-Sub2API 将 `basketikun/infinite-canvas` 构建为同源子应用 `/canvas-app/`，用户入口是 `/workspace/canvas`。Canvas 产物直接嵌入 Sub2API 发布镜像和二进制，不需要额外容器、子域名或跨域配置。
+Sub2API 默认将 `basketikun/infinite-canvas` 构建为同源子应用 `/canvas-app/`，用户入口是 `/workspace/canvas`。Canvas 产物直接嵌入发布镜像和二进制；如需使用外部部署，可通过服务端 `INFINITE_CANVAS_URL` 配置完整 HTTP(S) 地址，前端会从公开运行时设置读取该地址，无需重新构建。
 
 ## 获取源码
 
@@ -33,11 +33,11 @@ GET /canvas-app/version.txt
 /workspace/canvas
 ```
 
-页面只读取当前用户的 active API Key，并通过同源 `postMessage` 传递给 Canvas。API Key 不会放进 URL。
+页面读取当前用户的全部 active API Key。默认同源；配置外部 Canvas 时，`postMessage` 只向该地址的 origin 发送，并只接受来自同一 origin 和目标 iframe 的消息。API Key 不会放进 URL。外部 Canvas 必须实现相同的 bridge 消息协议。
 
 ## 第一阶段 Codex Agent 连接
 
-- 固定入口：`/canvas-app/canvas?mode=new`
+- 默认入口：`/canvas-app/canvas?mode=new`；配置 `INFINITE_CANVAS_URL` 后，入口基于该地址生成。
 - 页面里增加“连接 Codex”帮助卡片。
 - 复制命令：`npx -y @basketikun/canvas-agent`
 - 自动检测：`http://127.0.0.1:17371/config`

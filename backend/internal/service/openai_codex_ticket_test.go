@@ -389,6 +389,80 @@ func TestRefreshOpenAICodexTickets_ConcurrentModelsPreserveAccountSnapshot(t *te
 	svc.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, int64(2), upstream.started.Load())
 }
+
+type codexTicketBoundedUpstream struct {
+	HTTPUpstream
+	started   chan struct{}
+	release   chan struct{}
+	active    atomic.Int64
+	maximum   atomic.Int64
+	completed atomic.Int64
+}
+
+func (u *codexTicketBoundedUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	active := u.active.Add(1)
+	defer u.active.Add(-1)
+	for {
+		maximum := u.maximum.Load()
+		if active <= maximum || u.maximum.CompareAndSwap(maximum, active) {
+			break
+		}
+	}
+	u.started <- struct{}{}
+	select {
+	case <-u.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	h := http.Header{}
+	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
+	u.completed.Add(1)
+	return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}, nil
+}
+
+func TestRefreshOpenAICodexTickets_LimitsConcurrentProbes(t *testing.T) {
+	const accountCount = openAICodexTicketMaxConcurrentProbes + 8
+	accounts := make([]Account, 0, accountCount)
+	for i := int64(1); i <= accountCount; i++ {
+		account := ticketTestAccount(i)
+		account.Status = StatusActive
+		accounts = append(accounts, *account)
+	}
+
+	repo := &codexTicketRefreshRepo{accounts: accounts}
+	upstream := &codexTicketBoundedUpstream{
+		started: make(chan struct{}, accountCount),
+		release: make(chan struct{}),
+	}
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
+		Enabled: true,
+		Models:  []string{openAICodexTicketDefaultModel},
+	}, upstream)
+	svc.accountRepo = repo
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.refreshOpenAICodexTickets(context.Background())
+	}()
+	for range openAICodexTicketMaxConcurrentProbes {
+		select {
+		case <-upstream.started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for the bounded probe batch")
+		}
+	}
+	time.Sleep(25 * time.Millisecond)
+	require.Equal(t, int64(openAICodexTicketMaxConcurrentProbes), upstream.maximum.Load())
+	require.Len(t, upstream.started, 0, "a probe started before a worker slot was released")
+	close(upstream.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for all probes")
+	}
+	require.Equal(t, int64(accountCount), upstream.completed.Load())
+}
 func TestOpenAICodexTicketStatuses_RespectRuntimeConfiguration(t *testing.T) {
 	account := ticketTestAccount(41)
 	require.Empty(t, OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{}, time.Now()))

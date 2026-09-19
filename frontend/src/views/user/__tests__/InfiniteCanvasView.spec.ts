@@ -10,7 +10,7 @@ import { CANVAS_CONFIGURED_MESSAGE, CANVAS_INIT_MESSAGE, CANVAS_READY_MESSAGE } 
 const { listKeys, showError, publicSettings, fetchAgentConfig, writeClipboard } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   showError: vi.fn(),
-  publicSettings: { api_base_url: 'https://gateway.example.com' },
+  publicSettings: { api_base_url: 'https://gateway.example.com', infinite_canvas_url: '' },
   fetchAgentConfig: vi.fn(),
   writeClipboard: vi.fn(),
 }))
@@ -72,6 +72,7 @@ describe('InfiniteCanvasView', () => {
     vi.clearAllMocks()
     localStorage.clear()
     publicSettings.api_base_url = 'https://gateway.example.com'
+    publicSettings.infinite_canvas_url = ''
     fetchAgentConfig.mockRejectedValue(new TypeError('Agent unavailable'))
     vi.stubGlobal('fetch', fetchAgentConfig)
     writeClipboard.mockResolvedValue(undefined)
@@ -135,6 +136,71 @@ describe('InfiniteCanvasView', () => {
 
     expect(openWindow).toHaveBeenCalledWith('/canvas-app/', '_blank', 'noopener,noreferrer')
     openWindow.mockRestore()
+  })
+
+  it('uses the runtime Canvas URL and trusts only its configured origin', async () => {
+    publicSettings.infinite_canvas_url = 'https://canvas.example.net/custom/'
+    const wrapper = mount(InfiniteCanvasView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          RouterLink: { template: '<a><slot /></a>' },
+          Icon: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const iframe = wrapper.get('iframe')
+    expect(iframe.attributes('src')).toBe('https://canvas.example.net/custom/')
+    await wrapper.get('[data-test="codex-agent-toggle"]').trigger('click')
+    expect(wrapper.get('[data-test="codex-agent-entry"]').attributes('href')).toBe(
+      'https://canvas.example.net/custom/canvas?mode=new'
+    )
+
+    const targetWindow = { postMessage: vi.fn() } as unknown as Window
+    Object.defineProperty(iframe.element, 'contentWindow', { value: targetWindow })
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: targetWindow,
+      data: { type: CANVAS_READY_MESSAGE, version: 1 },
+    }))
+    expect(targetWindow.postMessage).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: 'https://canvas.example.net',
+      source: targetWindow,
+      data: { type: CANVAS_READY_MESSAGE, version: 1 },
+    }))
+    expect(targetWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: CANVAS_INIT_MESSAGE }),
+      'https://canvas.example.net'
+    )
+  })
+
+  it('loads every active-key page before restoring the saved selection', async () => {
+    const laterKey = { ...activeKey, id: 108, key: 'sk-later-page', name: 'Later key' }
+    localStorage.setItem('sub2:infinite-canvas:key-id', '108')
+    listKeys.mockImplementation((page: number) => Promise.resolve(
+      page === 1
+        ? { items: [activeKey], total: 2, page: 1, page_size: 100, pages: 2 }
+        : { items: [laterKey], total: 2, page: 2, page_size: 100, pages: 2 }
+    ))
+
+    const wrapper = mount(InfiniteCanvasView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          RouterLink: { template: '<a><slot /></a>' },
+          Icon: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(listKeys).toHaveBeenNthCalledWith(1, 1, 100, { status: 'active' })
+    expect(listKeys).toHaveBeenNthCalledWith(2, 2, 100, { status: 'active' })
+    expect(wrapper.get('select').element.value).toBe('108')
   })
 
   it('keeps the AppLayout-to-iframe height chain shrinkable on desktop and mobile', async () => {
