@@ -46,3 +46,28 @@ func TestMatchesSemverRange(t *testing.T) {
 	assert.False(t, matchesSemverRange("dev", ">=0.1.0"))
 	assert.False(t, matchesSemverRange("0.1.179", "^0.1.0"))
 }
+
+// Fork releases are X.Y.Z-custom.N. A plugin packaged for that host declares
+// ">=X.Y.Z <X.(Y+1).0"; strict semver would sort the host below X.Y.Z and make
+// the official plugin permanently uninstallable on the release it shipped with.
+func TestMatchesSemverRangeTreatsForkBuildsAsTheirReleaseLine(t *testing.T) {
+	const constraint = ">=0.2.9 <0.3.0"
+
+	assert.True(t, matchesSemverRange("0.2.9-custom.1", constraint))
+	assert.True(t, matchesSemverRange("0.2.9-custom.12+build.7", constraint))
+	assert.True(t, matchesSemverRange("0.2.9", constraint))
+	assert.False(t, matchesSemverRange("0.2.8-custom.5", constraint))
+	assert.False(t, matchesSemverRange("0.3.0-custom.1", constraint))
+	assert.False(t, matchesSemverRange("0.3.0", constraint))
+
+	// A bound that itself names a prerelease is still compared exactly.
+	assert.True(t, matchesSemverRange("0.2.9-custom.1", "=0.2.9-custom.1"))
+	assert.False(t, matchesSemverRange("0.2.9-custom.2", "=0.2.9-custom.1"))
+
+	manifest := testPluginManifest(nil)
+	manifest.Requires.Sub2API = constraint
+	manifest.Requires.TestedSub2APIVersions = []string{"0.2.9-custom.1"}
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.9-custom.1", BuildType: "release"})
+	require.True(t, result.Compatible)
+	assert.Equal(t, "compatible", result.Status)
+}

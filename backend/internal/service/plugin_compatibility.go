@@ -65,6 +65,16 @@ func normalizeSemver(version string) string {
 	return v
 }
 
+// comparableHostVersion 让不带预发布标记的边界约束整条发布线：
+// fork 构建 0.2.9-custom.1 属于 0.2.9，而不是按 semver 排在 0.2.9 之前；
+// 边界自身带预发布标记时仍按完整版本精确比较。
+func comparableHostVersion(version, bound string) string {
+	if semver.Prerelease(bound) != "" {
+		return version
+	}
+	return strings.TrimSuffix(version, semver.Prerelease(version)+semver.Build(version))
+}
+
 func matchesSemverRange(version, expression string) bool {
 	v := normalizeSemver(version)
 	if v == "" {
@@ -88,7 +98,7 @@ func matchesSemverRange(version, expression string) bool {
 		if bound == "" {
 			return false
 		}
-		comparison := semver.Compare(v, bound)
+		comparison := semver.Compare(comparableHostVersion(v, bound), bound)
 		matched := map[string]bool{
 			">=": comparison >= 0,
 			"<=": comparison <= 0,
