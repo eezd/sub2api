@@ -2,744 +2,273 @@
 
 <img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
 
-# Sub2API
+# Sub2API — eezd fork
 
-[![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
+[![Release](https://img.shields.io/github/v/release/eezd/sub2api?include_prereleases&label=release)](https://github.com/eezd/sub2api/releases)
+[![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-<a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
+**サブスクリプションクォータの配分、マルチプロバイダールーティング、運用管理に対応した AI API ゲートウェイ。**
 
-**サブスクリプションクォータ配分のための AI API ゲートウェイプラットフォーム**
-
-[English](README.md) | [中文](README_CN.md) | 日本語
+[English](README.md) · [中文](README_CN.md) · 日本語
 
 </div>
 
-## ⚠️ 重要なお知らせ
+> 本リポジトリは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の `eezd/sub2api` fork です。上流を同期しながら、以下に記載する fork 固有の機能を追加しています。上流の公式リリースではありません。
 
-本プロジェクトをご利用になる前に、以下の内容を必ずよくお読みください：
+## この fork の追加機能
 
-- **🚨 利用規約のリスク**：本プロジェクトの使用は、Anthropic をはじめとする上流プロバイダーの利用規約に違反する可能性があります。ご利用前に各プロバイダーのユーザー規約を必ずご確認ください。使用により生じるすべてのリスクはユーザーご自身が負うものとします。
-- **⚖️ 法令遵守**：お住まいの国または地域の法令を遵守した上で本プロジェクトをご利用ください。いかなる違法な目的での使用も固く禁じます。
-- **📖 免責事項**：本プロジェクトは技術的な学習および研究の目的でのみ提供されます。本プロジェクトの使用により生じたアカウントの停止、サービスの中断、データの損失、その他一切の直接的または間接的な損害について、作者は一切の責任を負いません。
-- **🚫 商用利用の非許諾**：本プロジェクトの開発者は、いかなる個人または組織に対しても、本プロジェクトを利用したいかなる形態の商業運営も一切許諾していません。本プロジェクトの名義で、または本プロジェクトに基づいて行われる商業行為はすべて本プロジェクトおよびその開発者とは無関係であり、それにより生じる一切の紛争、損失、法的責任は行為者自身が負うものとします。
+以下は上流版との主な違いです。Sub2API のコア機能は引き続き利用できます。ここでは、この fork で保守している機能を明示します。
 
-## ❤️ スポンサー
+| Fork の追加機能 | 内容 | ドキュメント |
+|---|---|---|
+| **Infinite Canvas ワークスペース** | `/workspace/canvas` に Infinite Canvas を統合し、`INFINITE_CANVAS_URL` による外部デプロイにも対応します。ローカル Codex Agent に接続できます。API Key を URL に埋め込みません。 | [`docs/infinite-canvas.md`](docs/infinite-canvas.md) |
+| **アカウントの最近のリクエスト履歴** | 管理画面のアカウント一覧に「Recent Requests」列を追加します。直近 15 分間の最大 5 件について、成功/エラー、レイテンシ、First Token、Token 数、コスト、倍率、詳細を表示します。アカウントごとの N+1 ポーリングを避け、ページ単位のバッチ取得を行います。 | [`POST /api/v1/admin/ops/requests/recent-by-account`](backend/internal/server/routes/admin.go) |
+| **Codex turn-state チケット** | 対応する OpenAI OAuth モデル向けに `x-codex-turn-state` を任意で取得・注入できます。管理画面の有効化、取得プロキシ、TTL、モデル範囲、フェイルクローズを設定できます。 | [`deploy/config.example.yaml`](deploy/config.example.yaml) の `gateway.openai_codex_ticket` |
+| **署名付き OpenAI Transport プラグイン** | OpenAI OAuth の出力 HTTP/TLS トランスポート用公式 `.s2plugin` を提供します。Node.js 24 形式の ClientHello、アカウントプロキシ継承、接続制限、タイムアウト、UI 設定、署名検証、段階的ロールアウトに対応します。 | [`docs/PLUGIN_INSTALLATION.md`](docs/PLUGIN_INSTALLATION.md) |
+| **TLS フィンガープリントプロファイル** | 管理対象の TLS フィンガープリントを提供します。ClientHello フィールドを制限し、変更操作にはステップアップ認証を要求します。直接接続、HTTP CONNECT、SOCKS5H プロキシに対応します。 | [`docs/PLUGIN_DEVELOPMENT.md`](docs/PLUGIN_DEVELOPMENT.md)、`backend/pkg/pluginapi/docs/` |
+| **強化された出力 URL セキュリティ** | 新規インストールでは HTTPS による出力先検証を有効にし、プライベート、ループバック、リンクローカル、未指定アドレスを拒否します。リダイレクトとレスポンス由来 URL も個別に検証します。 | [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) |
+| **Fork のリリースライン** | `vX.Y.Z-custom.N` 形式のリリース、署名済みプラグイン、完全なバージョンタグを持つ GHCR イメージを公開します。現在のリリースは [`v0.2.9-custom.1`](https://github.com/eezd/sub2api/releases/tag/v0.2.9-custom.1) です。 | [Release workflow](.github/workflows/release.yml) |
 
-> [こちらに掲載しませんか？](mailto:support@sub2api.org)
+### 公式プラグインの互換性
 
-<table>
+公式プラグインは、テスト済みの fork 版と同じ Release で公開されます。
 
-<tr>
-<td width="180"><a href="https://cctk.ai/register?aff=SUB2API"><img src="assets/partners/logos/cctk.jpg" alt="CCTK.AI" width="150"></a></td>
-<td>CCTK.AI のご支援に感謝します！<a href="https://cctk.ai/register?aff=SUB2API">CCTK.AI</a> は安定性とコストパフォーマンスにこだわった AI API ゲートウェイで、Claude、OpenAI、Gemini など主要モデルの高速中継サービスを提供しています。Claude Code や Codex などの主要なコーディングツールにシームレスに対応し、公式価格を大きく下回るコストで同等のモデル能力を利用できます。<a href="https://cctk.ai/register?aff=SUB2API">こちらのリンク</a>から登録して、より速く、より安定した、よりお得な AI API 接続をお試しください。</td>
-</tr>
+```text
+Sub2API: 0.2.9-custom.1
+Plugin:  0.2.9-custom.1
+Requires: >=0.2.9 <0.3.0
+```
 
-<tr>
-<td width="180"><a href="https://www.openmodel.ai?ref=sub2api"><img src="assets/partners/logos/openmodel.jpg" alt="openmodel" width="150"></a></td>
-<td>1つの API で、トップモデルを使い放題！<a href="https://www.openmodel.ai?ref=sub2api">OpenModel</a> は本番環境グレードで高可用性の AI API ゲートウェイに特化し、アプリを真に高速・安定させます：自動フェイルオーバー、最適なチャネルへのスマートルーティング、本番グレードの SLA 保証。単一プロバイダーをはるかに上回る SLA で、安定性をあなたの核心的な競争力にします。</td>
-</tr>
+同じ GitHub Release から対応する `.s2plugin` をダウンロードしてください。本番環境では `plugins.allow_unsigned: false` を維持してください。公式パッケージはホスト内蔵の公開鍵で検証されます。
 
-<tr>
-<td width="180"><a href="https://etok.ai"><img src="assets/partners/logos/etok.png" alt="ETok" width="150"></a></td>
-<td>ETok.ai のご支援に感謝します！ETok.ai はワンストップ AI プログラミングツールサービスプラットフォームの構築に取り組んでいます。Claude Code の専用プランと技術コミュニティサービスを提供し、Google Gemini や OpenAI Codex もサポートしています。丁寧に設計されたプランと専門的な技術コミュニティを通じて、開発者に安定したサービス保証と継続的な技術サポートを提供し、AI アシスト プログラミングを真の生産性向上ツールにします。<a href="https://etok.ai">こちら</a>から登録！</td>
-</tr>
+## 継承される上流機能
 
-<tr>
-<td width="180"><a href="https://apikey.fan/register?aff=SUB2API"><img src="assets/partners/logos/apikey-fun.png" alt="APIKEY.FUN" width="150"></a></td>
-<td>APIKEY.FUN のご支援に感謝します！<a href="https://apikey.fan/register?aff=SUB2API">APIKEY.FUN</a> は sub2api オープンソースプロジェクトのコアコントリビューターの一つであり、オープンで安定した、コストパフォーマンスに優れた AI API アクセスサービスの提供に取り組んでいます。プラットフォームは Claude、OpenAI、Gemini など人気モデルの API 中継サービスをサポートし、価格は公式料金のわずか 7% から。専用リンク <a href="https://apikey.fan/register?aff=SUB2API">APIKEY</a> から登録すると、すべてのチャージで永久 5% 割引をご利用いただけます。</td>
-</tr>
+この fork には、以下を含む上流プラットフォームの機能が引き続き含まれます。
 
-<tr>
-<td width="180"><a href="https://aigocode.com/invite/SUB2API"><img src="assets/partners/logos/aigocode.png" alt="AIGoCode" width="150"></a></td>
-<td>AIGoCode のご支援に感謝します！AIGoCode は Claude Code、Codex、最新の Gemini モデルを統合したオールインワンプラットフォームで、安定的かつ効率的でコストパフォーマンスに優れた AI コーディングサービスを提供します。柔軟なサブスクリプションプラン、アカウント停止リスクゼロ、VPN 不要の直接アクセス、超高速レスポンスが特長です。AIGoCode は sub2api ユーザー向けに特別特典を用意しています：<a href="https://aigocode.com/invite/SUB2API">こちらのリンク</a>から登録すると、初回チャージ時に 10% のボーナスクレジットを追加プレゼント！</td>
-</tr>
+- OAuth および API Key アカウントのマルチアカウント管理。
+- API Key 配布、グループ、スティッキーセッション、アカウントスケジューリング、フェイルオーバー、同時実行数制限、レート制限。
+- Token 単位の使用量、モデル価格、課金、サブスクリプション、組み込み決済プロバイダー。
+- 現行リリースで利用できる OpenAI 互換、Anthropic 互換、Gemini、Grok/xAI、Antigravity などのプロバイダー連携。
+- Composite Groups によるモデルベースのプロバイダールーティング（[運用ガイド](docs/COMPOSITE_GROUPS.md)）。
+- 同期/非同期画像タスク、バッチ画像処理、OpenAI Responses WebSocket の ingress 制御。
+- 管理監視、使用量レポート、バックアップ、Prompt Audit、セキュリティ設定、外部管理画面連携。
+- 個人または内部チーム向けの Simple Mode。
 
-<tr>
-<td width="180"><a href="https://codex-everywhere.com"><img src="assets/partners/logos/codex-everywhere.jpg" alt="CodexEverywhere" width="150"></a></td>
-<td>OpenAI 公式価格のわずか 3% で本物の GPT-5.6 シリーズを提供 — <a href="https://codex-everywhere.com">CodexEverywhere</a> は世界中の開発者にフロンティアモデルへのアクセスを民主化しています。私たちは透明性と誠実さを信条とし、モデル品質は数か月にわたるアクティブなコミュニティの監視によって検証されています。USD および暗号通貨に対応。<a href="https://codex-everywhere.com">codex-everywhere.com</a> で $20 の無料トライアルから始めましょう。</td>
-</tr>
+上流の履歴と基本アーキテクチャについては [上流プロジェクト](https://github.com/Wei-Shaw/sub2api) を参照してください。Fork 固有の動作は本 README とリンク先のドキュメントを正とします。
 
-<tr>
-<td width="180"><a href="https://shop.bmoplus.com/?utm_source=github"><img src="assets/partners/logos/bmoplus.jpg" alt="bmoplus" width="150"></a></td>
-<td>本プロジェクトにご支援いただいた BmoPlus に感謝いたします！BmoPlusは、AIサブスクリプションのヘビーユーザー向けに特化した信頼性の高いAIアカウントサービスプロバイダーであり、安定した ChatGPT Plus / ChatGPT Pro (完全保証) / Claude Pro / Super Grok / Gemini Pro の公式代行チャージおよび即納アカウントを提供しています。こちらの<a href="https://shop.bmoplus.com/?utm_source=github">BmoPlus AIアカウント専門店/代行チャージ</a>経由でご登録・ご注文いただいたユーザー様は、GPTを 公式サイト価格の約1割（90% OFF） という驚異的な価格でご利用いただけます！</td>
-</tr>
+## 重要なお知らせ
 
-<tr>
-<td width="180"><a href="https://bestproxy.com/?keyword=a2e8iuol"><img src="assets/partners/logos/bestproxy.png" alt="bestproxy" width="150"></a></td>
-<td>Bestproxy のご支援に感謝します！<a href="https://bestproxy.com/?keyword=a2e8iuol">Bestproxy</a> は高純度の住宅IPを提供し、1アカウント1IP専有をサポートしています。実際の家庭ネットワークとフィンガープリント分離を組み合わせることで、リンク環境の分離を実現し、関連付けによるリスク管理の確率を低減します。</td>
-</tr>
+- OAuth アカウント、サブスクリプションクォータ、API リレー機能を使用する前に、すべての上流プロバイダーの利用規約を確認してください。
+- 適用される法律、プロバイダー契約、プライバシー要件、決済ルール、ネットワークアクセス制限を遵守して利用してください。
+- 本ソフトウェアは技術学習・研究目的で提供されます。アカウント、データ、ユーザー、課金、コンテンツ、コンプライアンス、運用セキュリティについてはデプロイ者が責任を負います。
+- 本リポジトリに基づくデプロイ、ホスティング、料金プラン、リレーサービス、商用活動を本プロジェクトが許可・推奨するものではありません。公開または商用インスタンスを運用する前に [`docs/legal/admin-compliance.en.md`](docs/legal/admin-compliance.en.md) を確認してください。
 
-<tr>
-<td width="180"><a href="https://pateway.ai/?ch=1tsfr51"><img src="assets/partners/logos/pateway.png" alt="pateway" width="150"></a></td>
-<td>PatewayAI のご支援に感謝します！PatewayAI は、ヘビーAI開発者向けに公式直結を重視した高品質モデルAPIリレーサービスプロバイダーです。Claude 全シリーズおよび Codex シリーズモデルを提供し、100%公式ソースから直接供給 — 偽りなし、水増しなし、検証歓迎。課金は完全透明で、トークン単位の請求書を1件ずつ監査可能です。
-エンタープライズ級の高同時接続にも対応し、法人顧客向けに専用管理プラットフォームを提供しています。法人顧客は正式な契約を締結し、請求書の発行が可能です。詳細は公式サイトでお問い合わせください。
-<a href="https://pateway.ai/?ch=1tsfr51">こちらのリンク</a>から登録すると、$3 のトライアルクレジットがもらえます。チャージは最大40%オフ、友達紹介で双方にボーナス付与 — 紹介報酬は最大 $150。</td>
-</tr>
+## クイックスタート
 
-<tr>
-<td width="180"><a href="https://api.pptoken.cc/register?promo=SUB2API"><img src="assets/partners/logos/pptoken.png" alt="pptoken" width="150"></a></td>
-<td>PPToken.cc のご支援に感謝します！<a href="https://api.pptoken.cc/register?promo=SUB2API">PPToken.cc</a> は GPT シリーズモデルの API 中継サービスを専門としており、Codex、Claude Code、OpenAI 互換クライアント、Gemini CLI などのツール接続をサポートしています。チャージは 1:1（1元＝1ドル分のクレジット）、GPT モデルは最低 0.16 倍のレート倍率で、総合コストは公式価格の約 2.2% 、最速ファーストトークンは約1秒 — 開発者が低コスト・高速レスポンスで GPT モデル機能にアクセスするのに最適です。テクニカルサポート：24時間365日リアルな人間が対応（ボットではありません）、グループ内で @技術 すれば 10 分以内に返信。スポンサー特典：先着 200 名のユーザーが<a href="https://api.pptoken.cc/register?promo=SUB2API">専用登録リンク</a>から登録し、プロモコード `SUB2API` を入力すると、Codex / Claude Code の無料トライアルクレジットを獲得できます — 最低利用額なし、カード登録不要。
-</td>
-</tr>
+### Docker Compose
 
-<tr>
-<td width="180"><a href="https://veilx.io/#/hello/SJRBRVDV"><img src="assets/partners/logos/veilx.png" alt="veilx" width="150"></a></td>
-<td>Veilx のご支援に感謝します！<a href="https://veilx.io/#/hello/SJRBRVDV">Veilx</a> CDN は超大規模 API リクエストシナリオ向けに設計されており、AI 中継サービスと AI API 呼び出しチェーンに対して深く最適化されています。高並列・高頻度リクエスト・大容量トラフィックに容易に対応し、開発者と企業により高速で安定した、低レイテンシの加速体験を提供します。OpenAI、Claude、Gemini などの AI インターフェース中継はもちろん、チャット、画像生成、Embedding、ストリーミング出力などの複雑なシナリオでも、Veilx は応答速度と接続安定性を大幅に向上させ、ネットワーク変動によるタイムアウトや失敗を効果的に削減します。さらに、Veilx は中国三大ネットワーク最適化の高速回線を提供しており、中国本土から海外 AI サービスへのアクセス速度と安定性を大幅に向上させます。グローバル AI 中継プラットフォーム、海外 AI SaaS、越境ビジネス、高並列 API システム展開に特に適しています。AI API のために生まれ、あなたの AI 中継サービスをより速く、より安定して、より安心に。<a href="https://veilx.io/#/hello/SJRBRVDV">購入リンク</a>
-</td>
-</tr>
+Docker Compose は開発およびセルフホスティングに適しています。リポジトリ内の Compose ファイルはデフォルトで上流イメージ名を参照します。この fork を使用する場合は、fork の Release に対応する GHCR イメージへ置き換えてください。
 
-<tr>
-<td width="180"><a href="https://roxybrowser.com/invite/bgGKG7"><img src="assets/partners/logos/RoxyBrowser.png" alt="RoxyBrowser" width="150"></a></td>
-<td>RoxyBrowser のご支援に感謝します！<a href="https://roxybrowser.com/invite/bgGKG7">RoxyBrowser</a> は Sub2API の理想的なパートナーです：ネイティブ統合された Roxy AI Agent と高品質なネイティブ住宅 IP を搭載し、シンプルなコマンドで一括自動化をサポート、マルチアカウント管理のセキュリティと効率を大幅に向上させます！<a href="https://roxybrowser.com/invite/bgGKG7">このリンク</a>から登録すると、無料の住宅 IP パッケージと生涯 10% 割引を獲得できます。
-</td>
-</tr>
+```bash
+git clone https://github.com/eezd/sub2api.git
+cd sub2api/deploy
+cp .env.example .env
+chmod 600 .env
 
-<tr>
-<td width="180"><a href="https://www.proxy4free.com/?keyword=4yjqecpc"><img src="assets/partners/logos/proxy4free.png" alt="proxy4free" width="150"></a></td>
-<td>Proxy4Free のご支援に感謝します！Proxy4Free は開発者と AI アプリケーション向けのデータプロキシサービスプロバイダーで、住宅プロキシ、静的住宅プロキシ、ISP プロキシ、データセンタープロキシなど多様なプロキシソリューションを提供しており、Web Scraping、Browser Automation、AI Agent などのシナリオに適しています。グローバル IP リソース、安定した接続、柔軟な切り替えをサポートし、開発者のデータ収集成功率の向上と IP ブロックリスクの低減を支援します。<a href="https://www.proxy4free.com/?keyword=4yjqecpc">こちらのリンクから登録</a>して、より安定した効率的な自動化ワークフローを簡単に構築しましょう。
-</td>
-</tr>
+# .env に強力な POSTGRES_PASSWORD、JWT_SECRET、TOTP_ENCRYPTION_KEY を設定します。
+# fork の固定バージョンへ置き換えます。
+sed -i 's#weishaw/sub2api:latest#ghcr.io/eezd/sub2api:0.2.9-custom.1#' docker-compose.local.yml
 
-<tr>
-<td width="180"><a href="http://aimzoon.com"><img src="assets/partners/logos/aimzoon.jpg" alt="aimzoon" width="150"></a></td>
-<td>Aimzoon のご支援に感謝します！<a href="http://aimzoon.com">Aimzoon</a> は安定してコストパフォーマンスに優れた AI API 接続サービスを提供し、開発者が主要な AI サービスを Codex、Claude Code、Gemini CLI などのコーディングツールへ素早く接続できるようにします。複雑な設定は不要で、より速い接続、より安定した呼び出し、より低いコストを実現。Codex レート割引や特価レートなどのキャンペーンも随時開催中、登録するだけで無料お試しクレジットをプレゼント。AI コーディングを日常のワークフローへ。<a href="http://aimzoon.com">こちら</a>から登録してお試しください！
-</td>
-</tr>
+mkdir -p data postgres_data redis_data
+docker compose -f docker-compose.local.yml up -d
+docker compose -f docker-compose.local.yml logs -f sub2api
+```
 
-<tr>
-<td width="180"><a href="https://nagora.ai/"><img src="assets/partners/logos/nagora.png" alt="Nagora" width="150"></a></td>
-<td><a href="https://nagora.ai/">Nagora</a>は、開発者やチーム向けに設計されたマルチモデルAI APIゲートウェイです。1つのアカウントと1つのAPIキーだけで、26種類以上の主要なテキストモデルおよび画像モデルを一元的に利用できます。OpenAI、Anthropic、Geminiの各プロトコルに対応し、Claude Code、Codex、Gemini CLIなどの開発ツールにもシームレスに接続できます。 プラットフォームには、インテリジェントルーティング、自動フェイルオーバー、透明性の高い料金体系、請求の一元管理に加え、予算管理、レート制限、同時実行数の制御機能が備わっています。これにより、個人開発、チームでの共同作業、本番環境におけるAI APIの利用を、より安定的かつ柔軟に管理できます。 既存のアプリケーションを改修する必要はありません。Base URLとAPIキーを置き換えるだけで、最短1分で導入を完了できます。</td>
-</tr>
+`http://YOUR_SERVER_IP:8080` を開いてください。`AUTO_SETUP=true` の場合、コンテナはマイグレーションを適用し、初期管理者を作成します。`ADMIN_PASSWORD` を設定していない場合は、アプリケーションログから自動生成されたパスワードを確認します。
 
-<tr>
-<td width="180"><a href="https://s.qiniu.com/u6rQrq"><img src="assets/partners/logos/qiniu.jpg" alt="Qiniu AI" width="150"></a></td>
-<td>七牛云AI のご支援に感謝します！七牛云AI は、七牛云（02567.HK）傘下のエンタープライズ向け大規模モデル MaaS プラットフォームです。世界の主要モデル 150+ をワンストップで利用でき、グローバル主要モデルプロバイダーのプロトコルに対応し、テキスト、画像、音声、動画、ファイル処理などのフルモーダル処理能力をカバー。169万を超える企業・開発者ユーザーにサービスを提供しています。Sub2API ユーザー向けの限定特典として、<a href="https://s.qiniu.com/u6rQrq">こちらのリンク</a>から登録すると、企業ユーザーは 1200万 Token、開発者は 300万 Token を無料で獲得できます。</td>
-</tr>
+本番環境では `latest` を使わず、fork の固定バージョンを使用してください。ローカルディレクトリ版は `data/`、`postgres_data/`、`redis_data/` をまとめてバックアップ・移行できるため推奨です。
 
-<tr>
-<td width="180"><a href="https://api.fenno.ai/s/dC4k"><img src="assets/partners/logos/fennoai.jpg" alt="FennoAI" width="150"></a></td>
-<td>FennoAI のご支援に感謝します！FennoAI は、企業の研究開発チームと開発者向けの高安定・高性能 API 中継サービスプロバイダーです。OpenAI と Anthropic のプロトコルに対応し、Codex、Claude Code、OpenCode などの主要 AI コーディングツールにシームレスに接続できます。エンタープライズ級の安定性を備え、1 日あたり千億規模の Token 呼び出しに対応。国内外法人間の企業間決済と請求書発行もサポートし、企業の研究開発・調達ニーズに応えます。Sub2API ユーザー限定特典として、<a href="https://api.fenno.ai/s/dC4k">専用リンク</a>からサブスクリプションを購入すると、わずか 1.99 ドルで 50 ドル相当の Coding Plan クレジットを獲得できます。さらに招待報酬にも対応しており、友達の購入で最大 20% の還元を獲得可能。招待が多いほど、報酬も増えます。</td>
-</tr>
+Compose の種類、復旧動作、Apple `container`、移行、運用コマンドについては [`deploy/README.md`](deploy/README.md) を参照してください。
 
-<tr>
-<td width="180"><a href="https://lanox.ai/?c=6"><img src="assets/partners/logos/lanox.jpg" alt="LanoX AI" width="150"></a></td>
-<td>本プロジェクトをご支援いただいている <a href="https://lanox.ai/?c=6">LanoX AI</a> に感謝します！LanoX AI は、開発者、チーム、企業向けに、安定性とコストパフォーマンスに優れたグローバルモデル接続サービスを提供しています。 🎁 新規ユーザー特典 — 数百万 Token を無料で獲得可能。さらに 500+ の無料モデルで、低コストなテスト、検証、デプロイをより簡単に 🧠 世界の主要モデル — GPT · Claude · Gemini · Qwen · Grok... 🎬 マルチモーダル制作 — Seedance 2.0 · GPT Image · Gemini Nano Banana 🛡️ エンタープライズ級の安定性 — 高可用性 💎 ネイティブ能力の出力 💎 性能劣化なし 💎 モデル混在なし 💎 利用量と課金が透明 💎 💰 より低い利用コスト — トップモデルを公式価格の 1 割から利用可能。明確なドキュメント、簡単な接続、請求書発行、企業向け一括利用に対応 🏢 企業に最適 — AI プロダクト、Agent、コンテンツプラットフォーム、大量利用する開発チームに最適</td>
-</tr>
+### ビルド済みバイナリ
 
-<tr>
-<td width="180"><a href="https://www.rapidproxy.io/?ref=sub2api"><img src="assets/partners/logos/rapidproxy.jpg" alt="RapidProxy" width="150"></a></td>
-<td><a href="https://www.rapidproxy.io/?ref=sub2api">RapidProxy</a> は開発者向けのデータ収集プロキシソリューションであり、安定して信頼できる住宅用プロキシサービスを提供します。9,000 万以上のグローバル住宅 IP と 200 以上の国・地域のカバー、インテリジェントなローテーション機構、精密な地域ターゲティング機能により、クローラー、AI データ学習、SEO モニタリング、EC データ分析などのプロジェクトがアクセス制限を突破し、データ収集の効率を高めます。Playwright、Selenium、Puppeteer などの主要な自動化フレームワークに対応し、料金は $0.65/GB から。<a href="https://www.rapidproxy.io/?ref=sub2api">今すぐ無料でお試しください</a>。</td>
-</tr>
+[fork Releases](https://github.com/eezd/sub2api/releases) から対応するアーカイブをダウンロードし、PostgreSQL 15+ と Redis 7+ を準備してください。設定ファイルがない状態で起動するとセットアップウィザードが表示され、最初の管理者を作成できます。
 
-<tr>
-<td width="180"><a href="https://hao.ai"><img src="assets/partners/logos/haoai.png" alt="hao.ai" width="150"></a></td>
-<td><a href="https://hao.ai">hao.ai</a> は、開発者とチーム向けの高速で安定した大規模モデル統合 API ゲートウェイです。1 つの API Key と統一されたインターフェースで、GPT、Claude、xAI Grok などの主要モデルに接続でき、OpenAI や Anthropic などの一般的なプロトコルと SDK に対応しています。プラットフォームはモデルルーティング、フェイルオーバー、チーム管理、完全な呼び出しログを提供し、モデル価格は公式参考価格の 1.5 割から。よりシンプルに、より安定して、より低コストに AI アプリケーションを構築できます。</td>
-</tr>
+現在の Release は以下のターゲットを含みます。
 
-<tr>
-<td width="180"><a href="https://www.swiftproxy.net/?ref=sub2api"><img src="assets/partners/logos/swiftprox.png" alt="Swiftproxy" width="150"></a></td>
-<td>Swiftproxy は開発者向けの高性能プロキシソリューションで、安定して信頼できるレジデンシャルおよび静的レジデンシャルプロキシサービスを提供します。9,000 万以上のクリーンな住宅 IP を保有し、グローバルカバレッジ、柔軟なローテーション、精密なジオターゲティングにより、Web スクレイピング、AI オートメーション、ブラウザ自動化、SEO モニタリング、マルチアカウント管理などのプロジェクトがアクセス制限を克服し、ワークフロー効率を向上させます。HTTP(S) および SOCKS5 プロトコルに対応し、Playwright、Selenium、Puppeteer などの主要な自動化ツールと統合可能。動的プロキシトラフィックは使い切るまで期限切れなし、無料テストも利用可能 — <a href="https://www.swiftproxy.net/?ref=sub2api">今すぐ無料テストを開始</a>！</td>
-</tr>
+- Linux amd64、arm64
+- macOS amd64、arm64
+- Windows amd64
 
-<tr>
-<td width="180"><a href="https://www.duckip.cn/?keyword=cu7oog6y"><img src="assets/partners/logos/duckip.png" alt="DuckIP" width="150"></a></td>
-<td><a href="https://www.duckip.cn/?keyword=cu7oog6y">DuckIP</a> - 195 以上の国と地域にわたる 9,000 万以上のグローバルレジデンシャルネットワークリソース。ローテーションとスティッキーセッションに対応し、パブリックデータ収集、RAG 更新、モデル評価、マルチリージョンデータワークロードに最適。🟢レジデンシャルプロキシ - 20% オフ；🟢スタティックレジデンシャルプロキシ - ¥50.00/IP から；🟢無制限レジデンシャルプロキシ - ¥19.8/時間 から。✅500M 無料トライアルを取得。</td>
-</tr>
+### ソースからビルド
 
-<tr>
-<td width="180"><a href="https://go.apimart.ai/gh-sub2api"><img src="assets/partners/logos/apimart.jpg" alt="APIMart" width="150"></a></td>
-<td>APIMart のご支援に感謝します！<a href="https://go.apimart.ai/gh-sub2api">APIMart</a> は AI 画像・動画生成に特化した低価格 API プラットフォームです。GPT-Image-2 は 1 枚 $0.006 から、1 ドルで 160 枚以上の画像を生成できます。画像と動画の両方に対応する非同期 API を 1 つで利用でき、タスクを送信して ID を取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模のバッチ処理でもタイムアウトせず、モデルを変更してもコードの変更は不要です。月額料金なしの従量課金制で、<a href="https://go.apimart.ai/gh-sub2api">こちらの登録リンク</a>からすぐに利用を開始できます。</td>
-</tr>
+```bash
+git clone https://github.com/eezd/sub2api.git
+cd sub2api
 
-<tr>
-<td width="180"><a href="https://www.axisnow.io/"><img src="assets/partners/logos/axisnow.jpg" alt="AxisNow" width="150"></a></td>
-<td>AxisNow のご支援に感謝します！<a href="https://www.axisnow.io/">AxisNow</a> はウェブサイトと API を保護・高速化し、中国本土および世界中で快適なアクセス体験を実現します。クライアント SDK により、ネイティブ／モバイルアプリにも高速化・セキュリティ機能を拡張できます — <strong>自社構築・プライベートデプロイ CDN</strong>｜<strong>サブスクリプション型高防御 CDN</strong>｜<strong>自律制御で柔軟に組み合わせられる CDN ネットワーク</strong>。</td>
-</tr>
+corepack enable
+cd frontend
+pnpm install
+pnpm run build
 
-<tr>
-<td width="180"><a href="https://pp.dog/register?aff=SUB2API"><img src="assets/partners/logos/ppdog.png" alt="PP.dog" width="150"></a></td>
-<td><a href="https://pp.dog/register?aff=SUB2API">PP.dog</a> は自社運用の大規模アカウントプールを持つソースレベルの API ゲートウェイで、下流の中継ステーションや高頻度開発者向けに API ゲートウェイリレーサービスを提供し、アカウントプールの自主構築にかかるすべての手間を省きます。✅ ソース直供：自社運用の大規模アカウントプール、中間マージンなし；🧧 コスト最強：総合レート倍率わずか 0.03x、コストは公式の 0.35% のみ；🚀 超高速体験：ファーストトークンレイテンシ 1 秒未満、公式ネイティブ API に匹敵するスムーズさ。<a href="https://www.pp.dog/register?aff=SUB2API">今すぐ PP.dog に接続</a></td>
-</tr>
+cd ../backend
+VERSION="$(./scripts/resolve-version.sh)"
+go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/server
+./sub2api
+```
 
-<tr>
-<td width="180"><a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api"><img src="assets/partners/logos/cola-proxy.jpg" alt="ColaProxy" width="150"></a></td>
-<td>ColaProxy は、Web スクレイピング、自動化、マルチアカウント管理向けに構築された高品質な住宅プロキシを提供します。有効期限なしのトラフィックで無料トライアルが利用でき、料金は $0.3/GB から、無制限の同時接続とインテリジェントな IP ローテーションにより、よりスムーズで安定したプロキシ体験を実現します。割引コード COLA10 で 10% オフ、信頼性の高い住宅プロキシでプロジェクトを今すぐスケールしましょう。<a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api">ColaProxy を始める</a></td>
-</tr>
+`embed` ビルドタグはフロントエンドをバイナリへ埋め込みます。開発時にバックエンドとフロントエンドを別々に起動する場合は [`DEV_GUIDE.md`](DEV_GUIDE.md) を参照してください。
 
-</table>
+## 主要設定
 
-## 概要
+### 安全な出力デフォルト
 
-Sub2API は、AI 製品のサブスクリプションから API クォータを配分・管理するために設計された AI API ゲートウェイプラットフォームです。ユーザーはプラットフォームが生成した API キーを通じて上流の AI サービスにアクセスでき、プラットフォームは認証、課金、負荷分散、リクエスト転送を処理します。
+新規インストールでは出力 URL 境界を有効にしてください。
 
-## 機能
+```yaml
+security:
+  url_allowlist:
+    enabled: true
+    upstream_hosts:
+      - api.openai.com
+      - api.anthropic.com
+    allow_private_hosts: false
+    allow_insecure_http: false
+```
 
-- **マルチアカウント管理** - 複数の上流アカウントタイプ（OAuth、APIキー）をサポート
-- **APIキー配布** - ユーザー向けの APIキーの生成と管理
-- **精密な課金** - トークンレベルの使用量追跡とコスト計算
-- **スマートスケジューリング** - スティッキーセッション付きのインテリジェントなアカウント選択
-- **同時実行制御** - ユーザーごと・アカウントごとの同時実行数制限
-- **レート制限** - 設定可能なリクエスト数およびトークンレート制限
-- **内蔵決済システム** - EasyPay、Alipay、WeChat Pay、Stripe に対応。ユーザーのセルフサービスチャージが可能で、別途決済サービスのデプロイは不要（[設定ガイド](docs/PAYMENT.md)）
-- **管理ダッシュボード** - 監視・管理のための Web インターフェース
-- **外部システム連携** - 外部システム（チケット管理など）を iframe 経由で管理ダッシュボードに埋め込み可能
+プロバイダーのホスト名を `upstream_hosts` に追加し、追加のために境界を無効化しないでください。クロスオリジンリダイレクトは認証情報転送前に拒否されます。レスポンス由来 URL は公開先に限定され、リダイレクトの各 hop が検証されます。
 
-## エコシステム
+以下の弱い設定は、隔離された開発環境でのみ使用してください。
 
-Sub2API を拡張・統合するコミュニティプロジェクト:
+```yaml
+security:
+  url_allowlist:
+    enabled: false
+    allow_private_hosts: true
+    allow_insecure_http: true
+```
 
-| プロジェクト | 説明 | 機能 |
-|---------|-------------|----------|
-| ~~[Sub2ApiPay](https://github.com/touwaeriol/sub2apipay)~~ | ~~セルフサービス決済システム~~ | **内蔵済み** — 決済機能は Sub2API に統合されました。別途デプロイは不要です。[決済設定ガイド](docs/PAYMENT.md)をご参照ください |
-| [sub2api-mobile](https://github.com/ckken/sub2api-mobile) | モバイル管理コンソール | ユーザー管理、アカウント管理、監視ダッシュボード、マルチバックエンド切り替えが可能なクロスプラットフォームアプリ（iOS/Android/Web）。Expo + React Native で構築 |
+これらのチェックを無効にすると、認証情報や内部サービスが露出する可能性があります。互換性のために無効化する場合は、ネットワーク境界で同等の出力制御を実装してください。
 
-## 技術スタック
+### OpenAI WebSocket フォールバック
 
-| コンポーネント | 技術 |
-|-----------|------------|
-| バックエンド | Go 1.27.0, Gin, Ent |
-| フロントエンド | Vue 3.4+, Vite 5+, TailwindCSS |
-| データベース | PostgreSQL 15+ |
-| キャッシュ/キュー | Redis 7+ |
+プロキシが OpenAI Responses WebSocket を繰り返し再接続する場合、クライアント側のプロトコルを変更せずに上流を HTTP/SSE へ切り替えられます。
 
----
+```yaml
+gateway:
+  openai_ws:
+    force_http: true
+```
 
-## Nginx リバースプロキシに関する注意
+Compose では `GATEWAY_OPENAI_WS_FORCE_HTTP=true` を設定します。WebSocket の全設定は [`deploy/config.example.yaml`](deploy/config.example.yaml) にあります。
 
-Sub2API（または CRS）を Nginx でリバースプロキシし、Codex CLI と組み合わせて使用する場合、Nginx の `http` ブロックに以下の設定を追加してください:
+### Codex チケット取得
+
+この機能はデフォルトで無効です。必要なアカウントとモデルに対してのみ有効化してください。
+
+```yaml
+gateway:
+  openai_codex_ticket:
+    enabled: true
+    harvest_proxy_url: socks5h://user:password@proxy.example:1080
+    models:
+      - gpt-6-astra
+      - gpt-5.6-sol
+    fail_closed: true
+```
+
+チケットはシステム管理です。アカウント編集リクエストやユーザー指定のアカウントメタデータへチケット値を書き込まないでください。取得プロキシの認証情報は秘密情報として扱ってください。
+
+## OpenAI Transport プラグインのインストール
+
+1. 対応する fork Release から `sub2api-openai-transport-<version>.s2plugin` をダウンロードします。
+2. 管理画面の **Plugins** を開き、パッケージをアップロードして署名と互換性を確認します。
+3. 有効化する前に設定とテストを完了します。
+4. 低いロールアウト率から開始し、プラグイン状態、成功率、レイテンシ、ログを監視します。
+5. バインディングを無効化すると、OpenAI OAuth アカウントはコアトランスポートへ戻ります。
+
+プラグインはアカウント選択、OAuth 更新、SSE 解析、リトライ、課金を置き換えません。署名済みパッケージを展開・変更しないでください。インストール、アップグレード、ロールバック、設定、ソースビルドの詳細は [`docs/PLUGIN_INSTALLATION.md`](docs/PLUGIN_INSTALLATION.md) を参照してください。
+
+## Infinite Canvas
+
+この fork は以下のパスに Canvas を統合しています。
+
+```text
+/workspace/canvas
+```
+
+デフォルトの同一オリジン構成では `/canvas-app/` から組み込みアプリを提供します。`INFINITE_CANVAS_URL` を設定すると外部 Canvas を利用できます。外部アプリは定義済み bridge を実装する必要があります。API Key は認証済み bridge 経由で渡され、公開 URL には含まれません。
+
+Canvas ワークスペースから Codex Agent に接続するには次を実行します。
+
+```bash
+npx -y @basketikun/canvas-agent
+```
+
+デプロイ、bridge セキュリティ、外部ホスティング、トラブルシューティングは [`docs/infinite-canvas.md`](docs/infinite-canvas.md) を参照してください。
+
+## 管理画面の最近のリクエスト
+
+アカウント一覧で「Recent Requests」列を表示すると、現在のページを 1 回のバッチリクエストで更新します。各アカウントについて直近 15 分間の最大 5 件を表示し、リクエスト ID、モデル、状態、時刻、Token、コスト、アカウント倍率の詳細を開けます。
+
+この機能は、旧来のアカウントごとのポーリングを意図的に避けています。現在表示されているアカウント ID を受け取り、グループ化された結果を返します。
+
+```http
+POST /api/v1/admin/ops/requests/recent-by-account
+Content-Type: application/json
+
+{"account_ids":[101,102,103]}
+```
+
+## Nginx とリバースプロキシ
+
+Codex などアンダースコアを含むリクエストヘッダーを使用するクライアントを Nginx 経由で接続する場合、`http` ブロックに以下を追加します。
 
 ```nginx
 underscores_in_headers on;
 ```
 
-Nginx はデフォルトでアンダースコアを含むヘッダー（例: `session_id`）を破棄するため、マルチアカウント構成でのスティッキーセッションルーティングに支障をきたします。
-
----
-
-## デプロイ
-
-### 方法1: スクリプトによるインストール（推奨）
-
-GitHub Releases からビルド済みバイナリをダウンロードするワンクリックインストールスクリプトです。
-
-#### 前提条件
-
-- Linux サーバー（amd64 または arm64）
-- PostgreSQL 15+（インストール済みかつ稼働中）
-- Redis 7+（インストール済みかつ稼働中）
-- root 権限
-
-#### インストール手順
-
-```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
-```
-
-スクリプトは以下を実行します:
-1. システムアーキテクチャの検出
-2. 最新リリースのダウンロード
-3. バイナリを `/opt/sub2api` にインストール
-4. systemd サービスの作成
-5. システムユーザーと権限の設定
-
-#### インストール後の作業
-
-```bash
-# 1. サービスを起動
-sudo systemctl start sub2api
-
-# 2. 起動時の自動起動を有効化
-sudo systemctl enable sub2api
-
-# 3. ブラウザでセットアップウィザードを開く
-# http://YOUR_SERVER_IP:8080
-```
-
-セットアップウィザードでは以下の設定を行います:
-- データベース設定
-- Redis 設定
-- 管理者アカウントの作成
-
-#### アップグレード
-
-**管理ダッシュボード**の左上にある**アップデートを確認**ボタンをクリックすることで、ダッシュボードから直接アップグレードできます。
-
-Web インターフェースでは以下が可能です:
-- 新しいバージョンの自動確認
-- ワンクリックでのアップデートのダウンロードと適用
-- 必要に応じたロールバック
-
-#### よく使うコマンド
-
-```bash
-# ステータスを確認
-sudo systemctl status sub2api
-
-# ログを表示
-sudo journalctl -u sub2api -f
-
-# サービスを再起動
-sudo systemctl restart sub2api
-
-# アンインストール
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
-```
-
----
-
-### 方法2: Docker Compose（推奨）
-
-PostgreSQL と Redis のコンテナを含む Docker Compose でデプロイします。
-
-#### 前提条件
-
-- Docker 20.10+
-- Docker Compose v2+
-
-#### クイックスタート（ワンクリックデプロイ）
-
-自動デプロイスクリプトを使用して簡単にセットアップできます:
-
-```bash
-# デプロイ用ディレクトリを作成
-mkdir -p sub2api-deploy && cd sub2api-deploy
-
-# デプロイ準備スクリプトをダウンロードして実行
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
-
-# サービスを起動
-docker compose up -d
-
-# ログを表示
-docker compose logs -f sub2api
-```
-
-**スクリプトの動作内容:**
-- `docker-compose.local.yml`（`docker-compose.yml` として保存）と `.env.example` をダウンロード
-- セキュアな認証情報（JWT_SECRET、TOTP_ENCRYPTION_KEY、POSTGRES_PASSWORD）を自動生成
-- 自動生成されたシークレットで `.env` ファイルを作成
-- データディレクトリを作成（バックアップ・移行が容易なローカルディレクトリを使用）
-- 生成された認証情報を参照用に表示
-
-#### 手動デプロイ
-
-手動でセットアップする場合:
-
-```bash
-# 1. リポジトリをクローン
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
-
-# 2. 環境設定ファイルをコピー
-cp .env.example .env
-chmod 600 .env
-
-# 3. 設定を編集（セキュアなパスワードを生成）
-nano .env
-```
-
-**`.env` の必須設定:**
-
-```bash
-# PostgreSQL パスワード（必須）
-POSTGRES_PASSWORD=your_secure_password_here
-
-# JWT シークレット（推奨 - 再起動後もユーザーのログイン状態を保持）
-JWT_SECRET=your_jwt_secret_here
-
-# TOTP 暗号化キー（推奨 - 再起動後も二要素認証を維持）
-TOTP_ENCRYPTION_KEY=your_totp_key_here
-
-# オプション: 管理者アカウント
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your_admin_password
-
-# オプション: カスタムポート
-SERVER_PORT=8080
-```
-
-**セキュアなシークレットの生成方法:**
-```bash
-# JWT_SECRET を生成
-openssl rand -hex 32
-
-# TOTP_ENCRYPTION_KEY を生成
-openssl rand -hex 32
-
-# POSTGRES_PASSWORD を生成
-openssl rand -hex 32
-```
-
-```bash
-# 4. データディレクトリを作成（ローカルバージョンの場合）
-mkdir -p data postgres_data redis_data
-
-# 5. すべてのサービスを起動
-# オプション A: ローカルディレクトリバージョン（推奨 - 移行が容易）
-docker compose -f docker-compose.local.yml up -d
-
-# オプション B: 名前付きボリュームバージョン（シンプルなセットアップ）
-docker compose up -d
-
-# 6. ステータスを確認
-docker compose -f docker-compose.local.yml ps
-
-# 7. ログを表示
-docker compose -f docker-compose.local.yml logs -f sub2api
-```
-
-#### デプロイバージョン
-
-| バージョン | データストレージ | 移行 | 推奨用途 |
-|---------|-------------|-----------|----------|
-| **docker-compose.local.yml** | ローカルディレクトリ | ✅ 容易（ディレクトリ全体を tar） | 本番環境、頻繁なバックアップ |
-| **docker-compose.yml** | 名前付きボリューム | ⚠️ docker コマンドが必要 | シンプルなセットアップ |
-
-**推奨:** データ管理が容易な `docker-compose.local.yml`（スクリプトによるデプロイ）を使用してください。
-
-#### アクセス
-
-ブラウザで `http://YOUR_SERVER_IP:8080` を開いてください。
-
-管理者パスワードが自動生成された場合は、ログで確認できます:
-```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
-```
-
-#### アップグレード
-
-```bash
-# 最新イメージをプルしてコンテナを再作成
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
-```
-
-#### 簡単な移行（ローカルディレクトリバージョン）
-
-`docker-compose.local.yml` を使用している場合、新しいサーバーへの移行が簡単です:
-
-```bash
-# 移行元サーバーにて
-docker compose -f docker-compose.local.yml down
-cd ..
-tar czf sub2api-complete.tar.gz sub2api-deploy/
-
-# 新しいサーバーに転送
-scp sub2api-complete.tar.gz user@new-server:/path/
-
-# 移行先サーバーにて
-tar xzf sub2api-complete.tar.gz
-cd sub2api-deploy/
-docker compose -f docker-compose.local.yml up -d
-```
-
-#### よく使うコマンド
-
-```bash
-# すべてのサービスを停止
-docker compose -f docker-compose.local.yml down
-
-# 再起動
-docker compose -f docker-compose.local.yml restart
-
-# すべてのログを表示
-docker compose -f docker-compose.local.yml logs -f
-
-# すべてのデータを削除（注意！）
-docker compose -f docker-compose.local.yml down
-rm -rf data/ postgres_data/ redis_data/
-```
-
----
-
-### 方法3: Apple container（macOS）
-
-Apple シリコン搭載 Mac と macOS 26 では、Apple `container` 1.1.0 以降を使用して Sub2API、PostgreSQL、Redis の完全なスタックを実行できます:
-
-```bash
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
-./apple-container.sh init
-./apple-container.sh up
-./apple-container.sh status
-```
-
-これはローカル開発および手動運用向けです。本番環境では引き続き Docker Compose を推奨します。ライフサイクル、永続化、アップグレード、制限については [deploy/APPLE_CONTAINER.md](deploy/APPLE_CONTAINER.md) を参照してください。
-
----
-
-### 方法4: ソースからビルド
-
-開発やカスタマイズのためにソースコードからビルドして実行します。
-
-#### 前提条件
-
-- Go 1.21+
-- Node.js 18+
-- PostgreSQL 15+
-- Redis 7+
-
-#### ビルド手順
-
-```bash
-# 1. リポジトリをクローン
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api
-
-# 2. pnpm をインストール（未インストールの場合）
-npm install -g pnpm
-
-# 3. フロントエンドをビルド
-cd frontend
-pnpm install
-pnpm run build
-# 出力先: ../backend/internal/web/dist/
-
-# 4. フロントエンドを組み込んだバックエンドをビルド
-cd ../backend
-VERSION="$(./scripts/resolve-version.sh)"
-go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/server
-
-# 5. 設定ファイルを作成
-cp ../deploy/config.example.yaml ./config.yaml
-
-# 6. 設定を編集
-nano config.yaml
-```
-
-> **注意:** `-tags embed` フラグはフロントエンドをバイナリに組み込みます。このフラグがない場合、バイナリはフロントエンド UI を提供しません。
-
-**`config.yaml` の主要設定:**
-
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8080
-  mode: "release"
-
-database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "your_password"
-  dbname: "sub2api"
-
-redis:
-  host: "localhost"
-  port: 6379
-  password: ""
-
-jwt:
-  secret: "change-this-to-a-secure-random-string"
-  expire_hour: 24
-
-default:
-  user_concurrency: 5
-  user_balance: 0
-  api_key_prefix: "sk-"
-  rate_multiplier: 1.0
-```
-
-`config.yaml` では追加のセキュリティ関連オプションも利用できます:
-
-- `cors.allowed_origins` - CORS 許可リスト
-- `security.url_allowlist` - 上流/価格/CRS ホストの許可リスト
-- `security.url_allowlist.enabled` - URL バリデーションの無効化（注意して使用）
-- `security.url_allowlist.allow_insecure_http` - バリデーション無効時に HTTP URL を許可
-- `security.url_allowlist.allow_private_hosts` - プライベート/ローカル IP アドレスを許可
-- `security.response_headers.enabled` - 設定可能なレスポンスヘッダーフィルタリングを有効化（無効時はデフォルトの許可リストを使用）
-- `security.csp` - Content-Security-Policy ヘッダーの制御
-- `billing.circuit_breaker` - 課金エラー時にフェイルクローズ
-- `security.trust_forwarded_ip_for_api_key_acl` - 従来の生転送ヘッダーによる上書きを制御（アップグレード互換性のため既定で有効）。無効にすると `server.trusted_proxies` を厳格に使用し、Sub2API に直接接続するプロキシの正確な CIDR のみを指定
-- `security.forwarded_client_ip_headers` - サードパーティ CDN のクライアント IP ヘッダーを最大 16 個指定。従来モードが有効な場合のみ、設定順で組み込みヘッダーより先に評価
-- `turnstile.required` - リリースモードでの Turnstile 必須化
-
-カスタムクライアント IP ヘッダーは YAML またはカンマ区切りの環境変数で設定できます:
-
-```bash
-SECURITY_FORWARDED_CLIENT_IP_HEADERS=True-Client-IP,X-CDN-Client-IP
-```
-
-ヘッダー名は検証、正規化、大小文字を区別しない重複排除が行われます。管理画面のセキュリティ設定から再起動せずに更新でき、新規インストールでは YAML/環境変数の既定値を保存し、既存環境ではデータベース値がない場合に補完します。従来モードを無効にするとカスタムおよび組み込みの生転送ヘッダーはすべて無視され、`server.trusted_proxies` のみを使用します。有効にする場合はオリジンへの接続元を CDN/プロキシに制限し、エッジで信頼する全クライアント IP ヘッダーを上書きしてください。移行規則と信頼境界の詳細は [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) を参照してください。
-
-**⚠️ セキュリティ警告: HTTP URL 設定**
-
-`security.url_allowlist.enabled=false` の場合、システムは最小限の URL バリデーションのみを行い、**デフォルトで HTTP URL を許可**します（開発フレンドリーモード。Docker Compose デプロイのデフォルトも同じです）。本番環境では、以下のように明示的に HTTPS のみに制限することを推奨します:
-
-```yaml
-security:
-  url_allowlist:
-    enabled: false                # 許可リストチェックを無効化
-    allow_insecure_http: false    # HTTPS のみ許可（本番環境推奨）
-```
-
-**または環境変数で設定:**
-
-```bash
-SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
-```
-
-**HTTP を許可するリスク:**
-- API キーとデータが**平文**で送信される（傍受の危険性）
-- **中間者攻撃（MITM）**を受けやすい
-- **本番環境には不適切**
-
-**HTTP を使用すべき場面:**
-- ✅ ローカルサーバーでの開発・テスト（http://localhost）
-- ✅ 信頼できるエンドポイントを持つ内部ネットワーク
-- ✅ HTTPS 取得前のアカウント接続テスト
-- ❌ 本番環境（HTTPS のみを使用）
-
-**`allow_insecure_http: false` 設定時に HTTP URL で表示されるエラー例:**
-```
-Invalid base URL: invalid url scheme: http
-```
-
-URL バリデーションまたはレスポンスヘッダーフィルタリングを無効にする場合は、ネットワーク層を強化してください:
-- 上流ドメイン/IP のエグレス許可リストを適用
-- プライベート/ループバック/リンクローカル範囲をブロック
-- TLS のみのアウトバウンドトラフィックを強制
-- プロキシで機密性の高い上流レスポンスヘッダーを除去
-
-#### ⚠️ 重要：管理者アカウントの作成
-
-初期管理者アカウントは**セットアップウィザード経由でのみ作成**されます（初回起動時に `http://<host>:8080` にアクセス）。`config.yaml` の `default.admin_email` / `default.admin_password` フィールドは**管理者作成には使われません**。テンプレートに残っているのは歴史的経緯によるものです。
-
-上記ステップ 5 で事前に `config.yaml` を作成しているため、**初回起動時にセットアップウィザードはスキップされます**。サーバーは既存の config を検出して通常モードで直接起動し、この時点では `users` テーブルが空のため、初回ログインは `invalid email or password` を返します。
-
-**管理者アカウントを作成する 2 つの方法:**
-
-1. **推奨 — ウィザードに `config.yaml` を自動生成させる:** 上記ステップ 5 をスキップします（`cp` を実行しない）。`./sub2api` を直接起動し、`http://localhost:8080` にアクセスすると、セットアップウィザードがデータベース・Redis・管理者アカウントの設定を案内し、`config.yaml` を自動生成します。
-
-2. **すでに `config.yaml` を作成してしまった場合:** 初回起動前に一時的に退避してウィザードを発生させ、完了後に戻します:
-   ```bash
-   mv config.yaml config.yaml.bak
-   ./sub2api        # ウィザードが http://localhost:8080 で起動し、新しい config.yaml を生成します
-   # ウィザード完了後、Ctrl+C でサーバーを停止し、設定を復元します:
-   mv config.yaml.bak config.yaml
-   ./sub2api        # 通常モードで再起動し、作成した管理者でログインします
-   ```
-
-```bash
-# 6. アプリケーションを実行
-./sub2api
-```
-
-#### 開発モード
-
-```bash
-# バックエンド（ホットリロード付き）
-cd backend
-go run ./cmd/server
-
-# フロントエンド（ホットリロード付き）
-cd frontend
-pnpm run dev
-```
-
-#### コード生成
-
-`backend/ent/schema` を編集した場合、Ent + Wire を再生成してください:
-
-```bash
-cd backend
-go generate ./ent
-go generate ./cmd/server
-```
-
----
-
-## シンプルモード
-
-シンプルモードは、フル SaaS 機能を必要とせず、素早くアクセスしたい個人開発者や社内チーム向けに設計されています。
-
-- 有効化: 環境変数 `RUN_MODE=simple` を設定
-- 違い: SaaS 関連機能を非表示にし、課金プロセスをスキップ
-- セキュリティに関する注意: 本番環境では `SIMPLE_MODE_CONFIRM=true` も設定する必要があります
-
----
-
-## Antigravity サポート
-
-Sub2API は [Antigravity](https://antigravity.so/) アカウントをサポートしています。認証後、Claude および Gemini モデル用の専用エンドポイントが利用可能になります。
-
-### 専用エンドポイント
-
-| エンドポイント | モデル |
-|----------|-------|
-| `/antigravity/v1/messages` | Claude モデル |
-| `/antigravity/v1beta/` | Gemini モデル |
-
-### Claude Code の設定
-
-```bash
-export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
-export ANTHROPIC_AUTH_TOKEN="sk-xxx"
-```
-
-### ハイブリッドスケジューリングモード
-
-Antigravity アカウントはオプションの**ハイブリッドスケジューリング**をサポートしています。有効にすると、汎用エンドポイント `/v1/messages` および `/v1beta/` も Antigravity アカウントにリクエストをルーティングします。
-
-> **⚠️ 警告**: Anthropic Claude と Antigravity Claude は**同じ会話コンテキスト内で混在させることはできません**。グループを使用して適切に分離してください。
-
----
+また、Sub2API に直接接続するプロキシ CIDR のみを `server.trusted_proxies` に設定してください。転送されたクライアント IP ヘッダーを信頼する前に [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) を確認してください。
+
+## ドキュメント一覧
+
+| トピック | ドキュメント |
+|---|---|
+| デプロイとアップグレード | [`deploy/README.md`](deploy/README.md) |
+| 決済設定 | [`docs/PAYMENT.md`](docs/PAYMENT.md) |
+| Composite Groups | [`docs/COMPOSITE_GROUPS.md`](docs/COMPOSITE_GROUPS.md) |
+| 非同期画像タスク | [`docs/ASYNC_IMAGE_TASKS.md`](docs/ASYNC_IMAGE_TASKS.md) |
+| バッチ画像処理 | [`docs/BATCH_IMAGE_MVP.md`](docs/BATCH_IMAGE_MVP.md) |
+| OpenAI Transport インストール | [`docs/PLUGIN_INSTALLATION.md`](docs/PLUGIN_INSTALLATION.md) |
+| プラグイン開発とパッケージ形式 | [`docs/PLUGIN_DEVELOPMENT.md`](docs/PLUGIN_DEVELOPMENT.md)、[`backend/pkg/pluginapi/docs/`](backend/pkg/pluginapi/docs/) |
+| Infinite Canvas | [`docs/infinite-canvas.md`](docs/infinite-canvas.md) |
+| エッジとプロキシのセキュリティ | [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) |
+| 開発ガイド | [`DEV_GUIDE.md`](DEV_GUIDE.md) |
 
 ## プロジェクト構成
 
-```
+```text
 sub2api/
-├── backend/                  # Go バックエンドサービス
-│   ├── cmd/server/           # アプリケーションエントリ
-│   ├── internal/             # 内部モジュール
-│   │   ├── config/           # 設定
-│   │   ├── model/            # データモデル
-│   │   ├── service/          # ビジネスロジック
-│   │   ├── handler/          # HTTP ハンドラー
-│   │   └── gateway/          # API ゲートウェイコア
-│   └── resources/            # 静的リソース
-│
-├── frontend/                 # Vue 3 フロントエンド
-│   └── src/
-│       ├── api/              # API 呼び出し
-│       ├── stores/           # 状態管理
-│       ├── views/            # ページコンポーネント
-│       └── components/       # 再利用可能なコンポーネント
-│
-└── deploy/                   # デプロイファイル
-    ├── docker-compose.yml    # Docker Compose 設定
-    ├── .env.example          # Docker Compose 用環境変数
-    ├── config.example.yaml   # バイナリデプロイ用フル設定ファイル
-    └── install.sh            # ワンクリックインストールスクリプト
+├── backend/                  # Go ゲートウェイ、サービス、リポジトリ、マイグレーション
+├── frontend/                 # Vue 管理画面とユーザー画面
+├── plugins/openai-transport/ # 公式 OpenAI Transport プラグイン UI/ランタイム
+├── integrations/infinite-canvas/ # Canvas サブモジュール
+├── deploy/                   # Compose、バイナリ、Apple container、設定
+├── docs/                     # 運用、セキュリティ、決済、プラグインのドキュメント
+└── scripts/                  # ビルド・統合用ヘルパー
 ```
-
-## スター履歴
-
-<a href="https://star-history.dera.page/#Wei-Shaw/sub2api&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=Wei-Shaw/sub2api&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=Wei-Shaw/sub2api&type=Date" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=Wei-Shaw/sub2api&type=Date" />
- </picture>
-</a>
-
----
 
 ## ライセンス
 
-本プロジェクトは [GNU Lesser General Public License v3.0](LICENSE)（またはそれ以降のバージョン）の下でライセンスされています。
+本プロジェクトは [GNU Lesser General Public License v3.0 またはそれ以降](LICENSE) の下で公開されています。
 
-Copyright (c) 2026 Wesley Liddick
-
----
+Fork は上流のライセンスと帰属表示を維持します。Fork 固有のコードとドキュメントは、リポジトリに適用されるライセンスに従います。詳細は [`LICENSE`](LICENSE) と [`CLA.md`](CLA.md) を参照してください。
 
 <div align="center">
 
-**このプロジェクトが役に立ったら、ぜひスターをお願いします！**
+**この fork が役立った場合は、Star と再現可能な Issue の報告をお願いします。**
 
 </div>
