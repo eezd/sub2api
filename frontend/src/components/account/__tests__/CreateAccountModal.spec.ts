@@ -413,6 +413,16 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     )
   })
 
+  it('renders one TLS ClientHello control for OpenAI OAuth accounts', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    const toggles = wrapper.findAll('[data-testid="create-openai-tls-fingerprint-toggle"]')
+    expect(toggles).toHaveLength(1)
+    await toggles[0]?.trigger('click')
+    expect(wrapper.findAll('[data-testid="create-openai-tls-profile-select"]')).toHaveLength(1)
+  })
+
   it('enables upstream billing probes by default for new OpenAI API key accounts', async () => {
     await submitApiKeyAccount('openai')
 
@@ -620,6 +630,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(true)
+  })
+
+  it('submits TLS ClientHello selection independently for OpenAI API key accounts', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI TLS account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="create-openai-tls-fingerprint-toggle"]').trigger('click')
+    expect(wrapper.get('[data-testid="create-openai-tls-fingerprint-toggle"]').classes()).toContain('bg-primary-600')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra?.enable_tls_fingerprint).toBe(true)
+    expect(extra).not.toHaveProperty('tls_fingerprint_profile_id')
+    expect(extra).not.toHaveProperty('codex_fingerprint_mode')
   })
 
   it('omits the OpenAI setting for non-OpenAI account creation', async () => {

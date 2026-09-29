@@ -43,3 +43,15 @@ ui/assets/...
 签名对象是 `manifest.json` 的精确原始字节。发布者私钥不得进入插件包、源码仓库或 Sub2API 运行环境。部署者只配置 Base64 Ed25519 公钥。
 
 默认生产配置拒绝未签名包。官方 OpenAI Transport 使用宿主内置公钥验签，不需要配置；其他发布者仍需配置 `trusted_publishers`。`allow_unsigned` 只用于开发者自己构建的本地包。
+
+仓库内官方 OpenAI Transport 使用同一可复现打包入口：
+
+```bash
+SUB2API_PLUGIN_SIGNING_KEY='<PKCS#8 PEM 或 Base64 Ed25519 私钥>' \
+  bash scripts/build-openai-transport-plugin.sh \
+    --version 0.1.179-custom.4 \
+    --host-version 0.1.179-custom.4 \
+    --output dist/sub2api-openai-transport-0.1.179-custom.4.s2plugin
+```
+
+脚本交叉编译 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64，使用固定 ZIP 元数据并对最终 `manifest.json` 签名。正式私钥只保存在 GitHub Actions Secret `SUB2API_PLUGIN_SIGNING_KEY`，不得写入仓库或发布附件。

@@ -839,6 +839,23 @@ describe('EditAccountModal', () => {
     )
   })
 
+  it('submits TLS ClientHello selection without changing Codex application identity', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.extra = { codex_fingerprint_mode: 'device' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-openai-tls-fingerprint-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.enable_tls_fingerprint).toBe(true)
+    expect(extra).not.toHaveProperty('tls_fingerprint_profile_id')
+    expect(extra?.codex_fingerprint_mode).toBe('device')
+  })
+
   it('writes the upstream request id header into extra only when it changes', async () => {
     const account = buildAccount()
     account.extra = { openai_compact_mode: 'force_on' }

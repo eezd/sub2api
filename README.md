@@ -183,7 +183,7 @@ Sub2API is an AI API gateway platform designed to distribute and manage API quot
 - **Concurrency Control** - Per-user and per-account concurrency limits
 - **Rate Limiting** - Configurable request and token rate limits
 - **Built-in Payment System** - Supports EasyPay, Alipay, WeChat Pay, and Stripe for user self-service top-up, no separate payment service needed ([Configuration Guide](docs/PAYMENT.md))
-- **Admin Dashboard** - Web interface for monitoring and management
+- **OpenAI Transport Plugin** - Signed, gradual-rollout outbound HTTP/TLS transport for OpenAI OAuth ([installation and release guide](docs/PLUGIN_INSTALLATION.md))
 - **Composite Groups** - Admin routing layer that resolves requested models to concrete providers for multi-provider groups ([Operator Guide](docs/COMPOSITE_GROUPS.md))
 - **External System Integration** - Embed external systems (e.g. ticketing) via iframe to extend the admin dashboard
 
@@ -566,45 +566,51 @@ SECURITY_FORWARDED_CLIENT_IP_HEADERS=True-Client-IP,X-CDN-Client-IP
 
 Header names are validated, canonicalized, and de-duplicated. The admin security settings can update the list without a restart; new installations persist YAML/environment defaults and existing installations backfill a missing database value. When legacy takeover is disabled, all custom and built-in raw forwarding headers are ignored and Gin uses only `server.trusted_proxies`. While takeover is enabled, firewall the origin to CDN/proxy addresses and make the edge overwrite every trusted client-IP header. See [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) for the complete migration and trust-boundary rules.
 
-**⚠️ Security Warning: HTTP URL Configuration**
+**Outbound URL security defaults**
 
-When `security.url_allowlist.enabled=false`, the system performs minimal URL validation and **allows HTTP URLs by default** (dev-friendly mode; Docker Compose deployments use the same default). For production, explicitly tighten this to HTTPS-only:
+New installations enable `security.url_allowlist`, require HTTPS, and reject
+private, loopback, link-local, and unspecified destination addresses. Add every
+custom upstream hostname to `security.url_allowlist.upstream_hosts`; do not
+disable the boundary just to add a provider.
 
 ```yaml
 security:
   url_allowlist:
-    enabled: false                # Disable allowlist checks
-    allow_insecure_http: false    # HTTPS only (recommended for production)
+    enabled: true
+    upstream_hosts:
+      - "api.openai.com"
+      - "api.example-provider.com"
+    allow_private_hosts: false
+    allow_insecure_http: false
 ```
 
-**Or via environment variable:**
+Disabling the allowlist is an explicit compatibility escape hatch. If a trusted,
+isolated development environment requires local HTTP targets, all three weaker
+settings must be selected deliberately:
 
-```bash
-SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
+```yaml
+security:
+  url_allowlist:
+    enabled: false
+    allow_private_hosts: true
+    allow_insecure_http: true
 ```
 
-**Risks of allowing HTTP:**
-- API keys and data transmitted in **plaintext** (vulnerable to interception)
-- Susceptible to **man-in-the-middle (MITM) attacks**
-- **NOT suitable for production** environments
+Requests that fetch untrusted response-provided URLs (including image backfill)
+always require public destinations, validate every redirect hop, and do not use
+a configured remote-resolving proxy. General upstream requests do not follow
+redirects by default. Cross-origin redirects are rejected before credentials can
+be forwarded.
 
-**When to use HTTP:**
-- ✅ Development/testing with local servers (http://localhost)
-- ✅ Internal networks with trusted endpoints
-- ✅ Testing account connectivity before obtaining HTTPS
-- ❌ Production environments (use HTTPS only)
+TLS fingerprint profile create/update/delete operations require step-up
+authentication. Profile request bodies are limited to 64 KiB; profiles are
+restricted to bounded HTTP/1.1, TLS 1.2+ ClientHello fields. Custom fingerprint
+transports support direct, HTTP CONNECT, and SOCKS5H paths; HTTPS proxy URLs fail
+closed because nested proxy TLS is not implemented.
 
-**Example error for HTTP URLs when `allow_insecure_http: false` is set:**
-```
-Invalid base URL: invalid url scheme: http
-```
-
-If you disable URL validation or response header filtering, harden your network layer:
-- Enforce an egress allowlist for upstream domains/IPs
-- Block private/loopback/link-local ranges
-- Enforce TLS-only outbound traffic
-- Strip sensitive upstream response headers at the proxy
+If you deliberately weaken URL validation, enforce the equivalent controls at
+the network boundary: egress domain/IP allowlists, private-range blocking,
+TLS-only transport, and sensitive-header stripping.
 
 #### OpenAI Responses WebSocket ingress limits
 

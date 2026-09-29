@@ -983,10 +983,11 @@ export default {
           umqModeSerialize: 'Serialize',
         },
         tlsFingerprint: {
-          label: 'TLS Fingerprint Simulation',
-          hint: 'Simulate Node.js/Claude Code client TLS fingerprint',
+          label: 'TLS ClientHello Profile',
+          hint: 'Explicitly select the TLS ClientHello sent by this account. This is independent from Codex application identity.',
           defaultProfile: 'Built-in Default',
-          randomProfile: 'Random'
+          randomProfile: 'Random',
+          randomProfileWarning: 'Random profiles may not match the configured User-Agent, OS, or architecture.'
         },
         sessionIdMasking: {
           label: 'Session ID Masking',

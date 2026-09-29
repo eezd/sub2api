@@ -2292,6 +2292,35 @@
         </div>
       </div>
 
+      <!-- TLS ClientHello Profile（与 Codex 应用层身份完全独立） -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.quotaControl.tlsFingerprint.hint') }}</p>
+          </div>
+          <button
+            type="button"
+            data-testid="edit-openai-tls-fingerprint-toggle"
+            @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
+            :class="['relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2', tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']"
+          >
+            <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out', tlsFingerprintEnabled ? 'translate-x-5' : 'translate-x-0']" />
+          </button>
+        </div>
+        <div v-if="tlsFingerprintEnabled" class="mt-3">
+          <select v-model="tlsFingerprintProfileId" data-testid="edit-openai-tls-profile-select" class="input">
+            <option :value="null">{{ t('admin.accounts.quotaControl.tlsFingerprint.defaultProfile') }}</option>
+            <option v-if="tlsFingerprintProfiles.length > 0" :value="-1">{{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfile') }}</option>
+            <option v-for="p in tlsFingerprintProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <p v-if="tlsFingerprintProfileId === -1" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfileWarning') }}</p>
+        </div>
+      </div>
+
       <!-- OpenAI 订阅档位手动覆盖（Plus/Pro/Free），仅 OAuth 非影子账号 -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
@@ -4747,6 +4776,10 @@ function loadQuotaControlSettings(account: Account) {
   cacheTTLOverrideTarget.value = '5m'
   customBaseUrlEnabled.value = false
   customBaseUrl.value = ''
+  // TLS ClientHello selection is independent from platform-specific quota controls.
+  tlsFingerprintEnabled.value = account.enable_tls_fingerprint === true
+  tlsFingerprintProfileId.value = account.tls_fingerprint_profile_id ?? null
+
 
   // Remaining quota control settings only apply to Anthropic accounts
   if (account.platform !== 'anthropic') {
@@ -4782,11 +4815,6 @@ function loadQuotaControlSettings(account: Account) {
   // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
   userMsgQueueMode.value = account.user_msg_queue_mode ?? ''
 
-  // Load TLS fingerprint setting
-  if (account.enable_tls_fingerprint === true) {
-    tlsFingerprintEnabled.value = true
-  }
-  tlsFingerprintProfileId.value = account.tls_fingerprint_profile_id ?? null
 
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
@@ -5523,6 +5551,17 @@ const handleSubmit = async () => {
     if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (tlsFingerprintEnabled.value) {
+        newExtra.enable_tls_fingerprint = true
+        if (tlsFingerprintProfileId.value != null) {
+          newExtra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
+        } else {
+          delete newExtra.tls_fingerprint_profile_id
+        }
+      } else {
+        delete newExtra.enable_tls_fingerprint
+        delete newExtra.tls_fingerprint_profile_id
+      }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
@@ -5636,6 +5675,20 @@ const handleSubmit = async () => {
           newExtra.codex_fingerprint_mode = codexFingerprintMode.value
         } else {
           delete newExtra.codex_fingerprint_mode
+        }
+      }
+
+      if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
+        if (tlsFingerprintEnabled.value) {
+          newExtra.enable_tls_fingerprint = true
+          if (tlsFingerprintProfileId.value != null) {
+            newExtra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
+          } else {
+            delete newExtra.tls_fingerprint_profile_id
+          }
+        } else {
+          delete newExtra.enable_tls_fingerprint
+          delete newExtra.tls_fingerprint_profile_id
         }
       }
 

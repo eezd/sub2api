@@ -96,17 +96,23 @@ func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredSOCKSProxy(t *testing.T) {
 	require.Equal(t, int64(1), upstreamCalls.Load())
 }
 
-func TestTLSFingerprintHTTPSProxyFallsBackWithoutBypassingProxy(t *testing.T) {
+func TestTLSFingerprintHTTPSProxyFailsClosed(t *testing.T) {
 	proxyURL, err := url.Parse("https://user:pass@proxy.example:8443")
 	require.NoError(t, err)
-	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, proxyURL, &tlsfingerprint.Profile{Name: "test"})
-	require.NoError(t, err)
-	require.NotNil(t, transport.Proxy)
-	require.Nil(t, transport.DialTLSContext)
-	req := &http.Request{URL: &url.URL{Scheme: "https", Host: "upstream.example"}}
-	resolved, err := transport.Proxy(req)
-	require.NoError(t, err)
-	require.Equal(t, "https://user:pass@proxy.example:8443", resolved.String())
+	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, proxyURL, &tlsfingerprint.Profile{Name: "test"}, upstreamProtocolModeDefault)
+	require.ErrorContains(t, err, "does not support HTTPS proxy")
+	require.Nil(t, transport)
+}
+
+func TestTLSFingerprintHTTP2ALPNFailsClosed(t *testing.T) {
+	transport, err := buildUpstreamTransportWithTLSFingerprint(
+		poolSettings{},
+		nil,
+		&tlsfingerprint.Profile{Name: "h2", ALPNProtocols: []string{"h2", "http/1.1"}},
+		upstreamProtocolModeDefault,
+	)
+	require.ErrorContains(t, err, "does not support h2 ALPN")
+	require.Nil(t, transport)
 }
 
 func startTestSOCKS5Proxy(t *testing.T) (string, *atomic.Int64) {
@@ -676,6 +682,16 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGeneric
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
 	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "OpenAI TLS path should not inherit generic header timeout")
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1, entry.protocolMode)
+}
+
+func (s *HTTPUpstreamSuite) TestTLSFingerprintProfileChangeUsesDifferentClient() {
+	svc := s.newService()
+	first, err := svc.getClientEntryWithTLS("", 1, 1, &tlsfingerprint.Profile{Name: "same", CipherSuites: []uint16{0x1301}}, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	second, err := svc.getClientEntryWithTLS("", 1, 1, &tlsfingerprint.Profile{Name: "same", CipherSuites: []uint16{0x1302}}, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.NotSame(s.T(), first, second)
 }
 
 func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {
@@ -702,6 +718,24 @@ func (s *HTTPUpstreamSuite) TestOpenAIHarvestProfileDisablesKeepAlives() {
 	require.True(s.T(), transport.DisableKeepAlives)
 	require.False(s.T(), transport.ForceAttemptHTTP2)
 	require.Equal(s.T(), 0, transport.MaxIdleConns)
+}
+
+func (s *HTTPUpstreamSuite) TestOpenAIHarvestTLSProfileDisablesKeepAlivesAndUsesDedicatedClient() {
+	svc := s.newService()
+	proxyURL := "socks5h://user:pass@harvest.example:31"
+	profile := &tlsfingerprint.Profile{Name: "codex-harvest"}
+	production, err := svc.getClientEntryWithTLS(proxyURL, 41, 5, profile, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	harvest, err := svc.getClientEntryWithTLS(proxyURL, 41, 5, profile, service.HTTPUpstreamProfileOpenAIHarvest, false, false)
+	require.NoError(s.T(), err)
+	require.NotSame(s.T(), production, harvest)
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1NoReuse, harvest.protocolMode)
+	transport, ok := harvest.client.Transport.(*http.Transport)
+	require.True(s.T(), ok, "expected *http.Transport")
+	require.True(s.T(), transport.DisableKeepAlives)
+	require.False(s.T(), transport.ForceAttemptHTTP2)
+	require.Equal(s.T(), 0, transport.MaxIdleConns)
+	require.Equal(s.T(), 0, transport.MaxIdleConnsPerHost)
 }
 
 func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutChangeRebuildsClient() {
@@ -1023,10 +1057,6 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 	require.True(t, ok)
 	base := &http.Client{}
 
-	plain, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://cdn.example.com/a.png", nil)
-	require.NoError(t, err)
-	require.Same(t, base, upstream.httpClientForUpstreamRequest(base, plain))
-
 	guarded, err := http.NewRequestWithContext(service.WithHTTPUpstreamPublicHostsOnly(t.Context()), http.MethodGet, "https://cdn.example.com/a.png", nil)
 	require.NoError(t, err)
 	client := upstream.httpClientForUpstreamRequest(base, guarded)
@@ -1046,8 +1076,63 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 		require.NoError(t, err)
 		require.Error(t, client.CheckRedirect(hopReq, via), "hop=%s", hop)
 	}
-	publicHop, err := http.NewRequestWithContext(guarded.Context(), http.MethodGet, "http://93.184.216.34/a.png", nil)
+	publicHop, err := http.NewRequestWithContext(guarded.Context(), http.MethodGet, "https://93.184.216.34/a.png", nil)
 	require.NoError(t, err)
 	require.NoError(t, client.CheckRedirect(publicHop, via))
 	require.Error(t, client.CheckRedirect(publicHop, make([]*http.Request, 10)), "redirect chain stays capped")
+}
+
+func TestHTTPUpstreamDoesNotFollowRedirectsByDefault(t *testing.T) {
+	var redirectedCalls atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectedCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	t.Cleanup(redirector.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, redirector.URL, nil)
+	require.NoError(t, err)
+	resp, err := NewHTTPUpstream(nil).Do(req, "", 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Zero(t, redirectedCalls.Load())
+}
+
+func TestRedirectCheckerStripsCredentialsBeforeCrossOriginFollow(t *testing.T) {
+	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	original, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.com/start", nil)
+	require.NoError(t, err)
+	redirected, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://attacker.example/next", nil)
+	require.NoError(t, err)
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key", "X-Goog-Api-Key"} {
+		redirected.Header.Set(header, "secret")
+	}
+
+	err = upstream.redirectChecker(redirected, []*http.Request{original})
+	require.NoError(t, err)
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key", "X-Goog-Api-Key"} {
+		require.Empty(t, redirected.Header.Get(header), "header=%s", header)
+	}
+}
+
+func TestPublicHostsOnlyRejectsRemoteResolvingProxy(t *testing.T) {
+	req, err := http.NewRequestWithContext(service.WithHTTPUpstreamPublicHostsOnly(t.Context()), http.MethodGet, "https://example.com/image.png", nil)
+	require.NoError(t, err)
+
+	require.ErrorContains(t, validatePublicHostProxyPolicy(req, "socks5h://proxy.example:1080"), "cannot use a remote-resolving proxy")
+	require.NoError(t, validatePublicHostProxyPolicy(req, ""))
+}
+
+func TestDirectDialValidationRejectsLoopbackBeforeConnect(t *testing.T) {
+	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	ctx := service.WithHTTPUpstreamPublicHostsOnly(t.Context())
+
+	conn, err := upstream.dialContextWithIPValidation(ctx, "tcp", "localhost:443")
+	require.ErrorContains(t, err, "not allowed")
+	require.Nil(t, conn)
 }

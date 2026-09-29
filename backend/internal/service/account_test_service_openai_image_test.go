@@ -32,12 +32,13 @@ func TestAccountTestService_OpenAIImageOAuthHandlesOutputItemDoneFallback(t *tes
 			)),
 		},
 	}
-	svc := &AccountTestService{httpUpstream: upstream}
+	svc := &AccountTestService{httpUpstream: upstream, tlsFPProfileService: &TLSFingerprintProfileService{}}
 	account := &Account{
 		ID:       53,
 		Name:     "openai-oauth",
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{"enable_tls_fingerprint": true},
 		Credentials: map[string]any{
 			"access_token": "token-123",
 		},
@@ -47,6 +48,8 @@ func TestAccountTestService_OpenAIImageOAuthHandlesOutputItemDoneFallback(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
+	require.NotNil(t, upstream.lastTLSProfile)
+	require.Equal(t, "Built-in Default (Node.js 24.x)", upstream.lastTLSProfile.Name)
 	require.Contains(t, rec.Body.String(), "Calling Codex /responses image tool")
 	require.Contains(t, rec.Body.String(), "data:image/png;base64,aGVsbG8=")
 	require.Contains(t, rec.Body.String(), "\"success\":true")

@@ -1,14 +1,33 @@
 package service
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
 }
 
+var errOpenAIPluginTLSProfileUnsupported = errors.New("OpenAI OAuth plugin binding does not support TLS ClientHello profiles")
+
+func rejectOpenAIPluginTLSProfile(manager *PluginManager, account *Account, hasTLSProfile bool) error {
+	if hasTLSProfile && manager != nil && manager.ShouldRouteOpenAIOAuth(account) {
+		return errOpenAIPluginTLSProfileUnsupported
+	}
+	return nil
+}
+
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	profile := s.resolveTLSProfile(account)
+	if err := rejectOpenAIPluginTLSProfile(s.pluginManager, account, profile != nil); err != nil {
+		return nil, err
+	}
+	if profile != nil {
+		return s.httpUpstream.DoWithTLS(request, proxyURL, account.ID, account.Concurrency, profile)
+	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
@@ -26,6 +45,14 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
+	if useTLSFallback && s.tlsFPProfileService != nil {
+		if profile := s.tlsFPProfileService.ResolveTLSProfile(account); profile != nil {
+			if err := rejectOpenAIPluginTLSProfile(s.pluginManager, account, true); err != nil {
+				return nil, err
+			}
+			return s.httpUpstream.DoWithTLS(request, proxyURL, account.ID, account.Concurrency, profile)
+		}
+	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
@@ -33,13 +60,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		}
 	}
 	if useTLSFallback {
-		return s.httpUpstream.DoWithTLS(
-			request,
-			proxyURL,
-			account.ID,
-			account.Concurrency,
-			s.tlsFPProfileService.ResolveTLSProfile(account),
-		)
+		return s.httpUpstream.DoWithTLS(request, proxyURL, account.ID, account.Concurrency, nil)
 	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 }

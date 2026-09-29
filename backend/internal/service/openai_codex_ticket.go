@@ -383,7 +383,13 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 	// Synthetic probes must use the dedicated no-reuse transport even when the
 	// production account is bound to a plugin. This also avoids reading pluginManager
 	// while handlers are still wiring it during gateway construction.
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	profile := s.resolveTLSProfile(account)
+	var resp *http.Response
+	if profile == nil {
+		resp, err = s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	} else {
+		resp, err = s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, profile)
+	}
 	if err != nil {
 		return "", 0, err
 	}

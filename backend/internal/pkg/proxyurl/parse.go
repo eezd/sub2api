@@ -41,12 +41,13 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 
 	parsed, err = url.Parse(trimmed)
 	if err != nil {
-		// 不使用 %w 包装，避免 url.Parse 的底层错误消息泄漏原始 URL（可能含凭据）
-		return "", nil, fmt.Errorf("invalid proxy URL: %v", err)
+		// url.Error embeds the original URL, including userinfo. Never wrap or
+		// format it into an externally visible error.
+		return "", nil, fmt.Errorf("invalid proxy URL")
 	}
 
 	if parsed.Host == "" || parsed.Hostname() == "" {
-		return "", nil, fmt.Errorf("proxy URL missing host: %s", parsed.Redacted())
+		return "", nil, fmt.Errorf("proxy URL missing host")
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
@@ -63,4 +64,22 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 	}
 
 	return trimmed, parsed, nil
+}
+
+// SafeDisplay returns a credential-free proxy identity suitable for logs.
+// Userinfo, path, query, and fragment are intentionally omitted.
+func SafeDisplay(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "direct"
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" || parsed.Hostname() == "" {
+		return "<invalid proxy URL>"
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme == "" {
+		return "<invalid proxy URL>"
+	}
+	return scheme + "://" + parsed.Host
 }

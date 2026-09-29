@@ -1,6 +1,6 @@
 ---
 name: sub2api-sync-release
-description: Sync the eezd/sub2api fork with the latest Wei-Shaw/sub2api main branch, preserve fork release customizations, derive the next vX.Y.Z-custom.N version, push the fork main branch and tag, publish GitHub Release plus multi-architecture GHCR images, and verify the result. Use when the user asks to 拉取上游、同步最新版、更新 fork、发布 SUB2API、新版本发布、sync upstream, or release eezd/sub2api.
+description: Sync the eezd/sub2api fork with the latest Wei-Shaw/sub2api main branch, preserve fork release customizations, derive the next vX.Y.Z-custom.N version, push the fork main branch and tag, publish GitHub Release plus the signed OpenAI Transport plugin and multi-architecture GHCR images, and verify the result. Use when the user asks to 拉取上游、同步最新版、更新 fork、发布 SUB2API、新版本发布、sync upstream, or release eezd/sub2api.
 ---
 
 # Sub2API Sync Release
@@ -21,7 +21,7 @@ Use the bundled script instead of assembling ad hoc Git commands. Run it from th
    bash .github/skills/sub2api-sync-release/scripts/sync-release.sh --execute
    ```
 
-3. Report the resulting tag, GitHub Actions URL, GitHub Release URL, GHCR image, architectures, and any skipped verification.
+3. Report the resulting tag, GitHub Actions URL, GitHub Release URL, signed `.s2plugin` asset URL, GHCR image, architectures, and any skipped verification.
 
 If the user only asks what would be released, stop after `--plan`.
 
@@ -39,7 +39,7 @@ The script MUST:
 - avoid creating a duplicate release when the current `HEAD` is already released;
 - publish `vX.Y.Z-custom.N`, incrementing `N` within the current upstream base version; preserve existing `-eezd.N` tags without rewriting them;
 - wait for the tag-triggered workflow and fall back to `workflow_dispatch` when GitHub does not register a tag run;
-- verify the final GitHub Release and GHCR multi-architecture manifest.
+- verify the final GitHub Release, signed OpenAI Transport plugin attachment, and GHCR multi-architecture manifest.
 
 ## Release Contract
 
@@ -50,6 +50,7 @@ Before pushing, retain these fork-specific settings:
 - Release is formal, not prerelease.
 - Only the full GHCR version manifest is published; no `latest`, major, or minor manifest.
 - Publishing does not commit `backend/cmd/server/VERSION` back to `main`.
+- Every release builds one signed `sub2api-openai-transport-<version>.s2plugin` containing all supported runtimes and uploads it to the same GitHub Release; the signing key comes only from the `SUB2API_PLUGIN_SIGNING_KEY` Actions Secret.
 
 ## Failure Handling
 

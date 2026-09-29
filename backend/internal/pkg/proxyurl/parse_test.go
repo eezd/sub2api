@@ -213,3 +213,28 @@ func TestParse_无Scheme裸地址(t *testing.T) {
 		t.Fatal("无 scheme 的裸地址应返回错误")
 	}
 }
+
+func TestParseErrorNeverExposesProxyCredentials(t *testing.T) {
+	const raw = "http://sensitive-user:secret-password@proxy.example/%zz"
+	_, _, err := Parse(raw)
+	if err == nil {
+		t.Fatal("malformed proxy URL should fail")
+	}
+	for _, secret := range []string{"sensitive-user", "secret-password", "proxy.example", "%zz"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("Parse() error leaked %q: %s", secret, err)
+		}
+	}
+}
+
+func TestSafeDisplayOmitsUserinfoAndURLDetails(t *testing.T) {
+	display := SafeDisplay("https://sensitive-user:secret-password@proxy.example:8443/private/path?token=secret#fragment")
+	if display != "https://proxy.example:8443" {
+		t.Fatalf("SafeDisplay() = %q", display)
+	}
+	for _, secret := range []string{"sensitive-user", "secret-password", "private", "token", "fragment"} {
+		if strings.Contains(display, secret) {
+			t.Fatalf("SafeDisplay() leaked %q: %s", secret, display)
+		}
+	}
+}

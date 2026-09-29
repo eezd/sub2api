@@ -5,15 +5,29 @@ package tlsfingerprint
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	utls "github.com/refraction-networking/utls"
+	"golang.org/x/net/proxy"
+	"hash"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
+)
 
-	utls "github.com/refraction-networking/utls"
-	"golang.org/x/net/proxy"
+const (
+	proxyDialTimeout            = 10 * time.Second
+	proxyDialKeepAlive          = 30 * time.Second
+	proxyHandshakeTimeout       = 10 * time.Second
+	tlsHandshakeTimeout         = 10 * time.Second
+	maxHTTPConnectResponseBytes = int64(64 << 10)
 )
 
 // Profile contains TLS fingerprint configuration.
@@ -30,6 +44,62 @@ type Profile struct {
 	KeyShareGroups      []uint16 // Empty uses [X25519]
 	PSKModes            []uint16 // Empty uses [psk_dhe_ke]
 	Extensions          []uint16 // Extension type IDs in order; empty uses default Node.js 24.x order
+}
+
+// ContainsHTTP2ALPN reports whether a profile would advertise HTTP/2.
+// The current custom ClientHello transports support HTTP/1.1 only.
+func ContainsHTTP2ALPN(protocols []string) bool {
+	for _, protocol := range protocols {
+		if strings.EqualFold(strings.TrimSpace(protocol), "h2") {
+			return true
+		}
+	}
+	return false
+}
+
+// ProfileKey returns a stable identity for the wire-relevant fields of profile.
+// It is used by connection pools to prevent reuse across profile changes.
+func ProfileKey(profile *Profile) string {
+	if profile == nil {
+		return ""
+	}
+	h := sha256.New()
+	writeUint16Slice(h, profile.CipherSuites)
+	writeUint16Slice(h, profile.Curves)
+	writeUint16Slice(h, profile.PointFormats)
+	writeUint16Slice(h, profile.SignatureAlgorithms)
+	writeUint32(h, len(profile.ALPNProtocols))
+	for _, value := range profile.ALPNProtocols {
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(value)))
+		_, _ = h.Write(size[:])
+		_, _ = h.Write([]byte(value))
+	}
+	writeUint16Slice(h, profile.SupportedVersions)
+	writeUint16Slice(h, profile.KeyShareGroups)
+	writeUint16Slice(h, profile.PSKModes)
+	writeUint16Slice(h, profile.Extensions)
+	var grease [1]byte
+	if profile.EnableGREASE {
+		grease[0] = 1
+	}
+	_, _ = h.Write(grease[:])
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeUint16Slice(h hash.Hash, values []uint16) {
+	writeUint32(h, len(values))
+	var encoded [2]byte
+	for _, value := range values {
+		binary.BigEndian.PutUint16(encoded[:], value)
+		_, _ = h.Write(encoded[:])
+	}
+}
+
+func writeUint32(h hash.Hash, value int) {
+	var encoded [4]byte
+	binary.BigEndian.PutUint32(encoded[:], uint32(value))
+	_, _ = h.Write(encoded[:])
 }
 
 // Dialer creates TLS connections with custom fingerprints.
@@ -121,7 +191,7 @@ var (
 // If baseDialer is nil, direct TCP dial is used.
 func NewDialer(profile *Profile, baseDialer func(ctx context.Context, network, addr string) (net.Conn, error)) *Dialer {
 	if baseDialer == nil {
-		baseDialer = (&net.Dialer{}).DialContext
+		baseDialer = (&net.Dialer{Timeout: proxyDialTimeout, KeepAlive: proxyDialKeepAlive}).DialContext
 	}
 	return &Dialer{profile: profile, baseDialer: baseDialer}
 }
@@ -141,112 +211,111 @@ func NewSOCKS5ProxyDialer(profile *Profile, proxyURL *url.URL) *SOCKS5ProxyDiale
 // DialTLSContext establishes a TLS connection through SOCKS5 proxy with the configured fingerprint.
 // Flow: SOCKS5 CONNECT to target -> TLS handshake with utls on the tunnel
 func (d *SOCKS5ProxyDialer) DialTLSContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	if d == nil || d.proxyURL == nil {
+		return nil, fmt.Errorf("SOCKS5 proxy URL is required")
+	}
 	slog.Debug("tls_fingerprint_socks5_connecting", "proxy", d.proxyURL.Host, "target", addr)
 
-	// Step 1: Create SOCKS5 dialer
 	var auth *proxy.Auth
 	if d.proxyURL.User != nil {
 		username := d.proxyURL.User.Username()
 		password, _ := d.proxyURL.User.Password()
-		auth = &proxy.Auth{
-			User:     username,
-			Password: password,
-		}
+		auth = &proxy.Auth{User: username, Password: password}
 	}
 
-	// Determine proxy address
 	proxyAddr := d.proxyURL.Host
 	if d.proxyURL.Port() == "" {
-		proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "1080") // Default SOCKS5 port
+		proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "1080")
 	}
-
-	socksDialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, proxy.Direct)
+	forward := &net.Dialer{Timeout: proxyDialTimeout, KeepAlive: proxyDialKeepAlive}
+	socksDialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, forward)
 	if err != nil {
-		slog.Debug("tls_fingerprint_socks5_dialer_failed", "error", err)
 		return nil, fmt.Errorf("create SOCKS5 dialer: %w", err)
 	}
+	contextDialer, ok := socksDialer.(proxy.ContextDialer)
+	if !ok {
+		return nil, fmt.Errorf("SOCKS5 dialer does not support context cancellation")
+	}
 
-	// Step 2: Establish SOCKS5 tunnel to target
-	slog.Debug("tls_fingerprint_socks5_establishing_tunnel", "target", addr)
-	conn, err := socksDialer.Dial("tcp", addr)
+	dialCtx, cancel := context.WithTimeout(ctx, proxyHandshakeTimeout)
+	defer cancel()
+	conn, err := contextDialer.DialContext(dialCtx, network, addr)
 	if err != nil {
-		slog.Debug("tls_fingerprint_socks5_connect_failed", "error", err)
 		return nil, fmt.Errorf("SOCKS5 connect: %w", err)
 	}
 	slog.Debug("tls_fingerprint_socks5_tunnel_established")
-
-	// Step 3: Perform TLS handshake on the tunnel with utls fingerprint
 	return performTLSHandshake(ctx, conn, d.profile, addr)
 }
 
 // DialTLSContext establishes a TLS connection through HTTP proxy with the configured fingerprint.
 // Flow: TCP connect to proxy -> CONNECT tunnel -> TLS handshake with utls
 func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	if d == nil || d.proxyURL == nil {
+		return nil, fmt.Errorf("HTTP proxy URL is required")
+	}
+	if !strings.EqualFold(d.proxyURL.Scheme, "http") {
+		return nil, fmt.Errorf("HTTP proxy dialer requires an http proxy")
+	}
 	slog.Debug("tls_fingerprint_http_proxy_connecting", "proxy", d.proxyURL.Host, "target", addr)
 
-	// Step 1: TCP connect to proxy server
-	var proxyAddr string
-	if d.proxyURL.Port() != "" {
-		proxyAddr = d.proxyURL.Host
-	} else {
-		// Default ports
-		if d.proxyURL.Scheme == "https" {
-			proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "443")
-		} else {
-			proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "80")
-		}
+	proxyAddr := d.proxyURL.Host
+	if d.proxyURL.Port() == "" {
+		proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "80")
 	}
-
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	dialer := &net.Dialer{Timeout: proxyDialTimeout, KeepAlive: proxyDialKeepAlive}
+	conn, err := dialer.DialContext(ctx, network, proxyAddr)
 	if err != nil {
-		slog.Debug("tls_fingerprint_http_proxy_connect_failed", "error", err)
 		return nil, fmt.Errorf("connect to proxy: %w", err)
 	}
-	slog.Debug("tls_fingerprint_http_proxy_connected", "proxy_addr", proxyAddr)
 
-	// Step 2: Send CONNECT request to establish tunnel
+	clearDeadline, err := armConnectionDeadline(ctx, conn, proxyHandshakeTimeout)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
 	req := &http.Request{
 		Method: "CONNECT",
 		URL:    &url.URL{Opaque: addr},
 		Host:   addr,
 		Header: make(http.Header),
 	}
-
-	// Add proxy authentication if present
 	if d.proxyURL.User != nil {
 		username := d.proxyURL.User.Username()
 		password, _ := d.proxyURL.User.Password()
 		auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 		req.Header.Set("Proxy-Authorization", "Basic "+auth)
 	}
-
-	slog.Debug("tls_fingerprint_http_proxy_sending_connect", "target", addr)
 	if err := req.Write(conn); err != nil {
+		clearDeadline()
 		_ = conn.Close()
-		slog.Debug("tls_fingerprint_http_proxy_write_failed", "error", err)
 		return nil, fmt.Errorf("write CONNECT request: %w", err)
 	}
 
-	// Step 3: Read CONNECT response
-	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, req)
+	limited := &io.LimitedReader{R: conn, N: maxHTTPConnectResponseBytes + 1}
+	resp, err := http.ReadResponse(bufio.NewReader(limited), req)
+	consumed := maxHTTPConnectResponseBytes + 1 - limited.N
 	if err != nil {
+		clearDeadline()
 		_ = conn.Close()
-		slog.Debug("tls_fingerprint_http_proxy_read_response_failed", "error", err)
+		if consumed > maxHTTPConnectResponseBytes {
+			return nil, fmt.Errorf("proxy CONNECT response headers exceed %d bytes", maxHTTPConnectResponseBytes)
+		}
 		return nil, fmt.Errorf("read CONNECT response: %w", err)
 	}
-	// CONNECT response has no body; do not defer resp.Body.Close() as it wraps the
-	// same conn that will be used for the TLS handshake.
-
-	if resp.StatusCode != http.StatusOK {
+	if consumed > maxHTTPConnectResponseBytes {
+		clearDeadline()
 		_ = conn.Close()
-		slog.Debug("tls_fingerprint_http_proxy_connect_failed_status", "status_code", resp.StatusCode, "status", resp.Status)
-		return nil, fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
+		return nil, fmt.Errorf("proxy CONNECT response headers exceed %d bytes", maxHTTPConnectResponseBytes)
 	}
-	slog.Debug("tls_fingerprint_http_proxy_tunnel_established")
+	if resp.StatusCode != http.StatusOK {
+		clearDeadline()
+		_ = conn.Close()
+		return nil, fmt.Errorf("proxy CONNECT failed with status %d", resp.StatusCode)
+	}
 
-	// Step 4: Perform TLS handshake on the tunnel with utls fingerprint
+	clearDeadline()
+	slog.Debug("tls_fingerprint_http_proxy_tunnel_established")
 	return performTLSHandshake(ctx, conn, d.profile, addr)
 }
 
@@ -270,23 +339,35 @@ func (d *Dialer) DialTLSContext(ctx context.Context, network, addr string) (net.
 // It builds a ClientHello spec from the profile, applies it, and completes the handshake.
 // On failure, conn is closed and an error is returned.
 func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, addr string) (net.Conn, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("TLS connection is nil")
+	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
 	}
 
-	spec := buildClientHelloSpecFromProfile(profile)
-	tlsConn := utls.UClient(conn, &utls.Config{ServerName: host}, utls.HelloCustom)
+	handshakeCtx, cancel := context.WithTimeout(ctx, tlsHandshakeTimeout)
+	defer cancel()
+	clearDeadline, err := armConnectionDeadline(handshakeCtx, conn, tlsHandshakeTimeout)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 
+	spec := buildClientHelloSpecFromProfile(profile)
+	tlsConn := utls.UClient(conn, &utls.Config{ServerName: host, MinVersion: utls.VersionTLS12}, utls.HelloCustom)
 	if err := tlsConn.ApplyPreset(spec); err != nil {
+		clearDeadline()
 		_ = conn.Close()
 		return nil, fmt.Errorf("apply TLS preset: %w", err)
 	}
-
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
+	if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
+		clearDeadline()
 		_ = conn.Close()
 		return nil, fmt.Errorf("TLS handshake failed: %w", err)
 	}
+	clearDeadline()
 
 	state := tlsConn.ConnectionState()
 	slog.Debug("tls_fingerprint_handshake_success",
@@ -294,8 +375,24 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 		"version", state.Version,
 		"cipher_suite", state.CipherSuite,
 		"alpn", state.NegotiatedProtocol)
-
 	return tlsConn, nil
+}
+
+func armConnectionDeadline(ctx context.Context, conn net.Conn, timeout time.Duration) (func(), error) {
+	deadline := time.Now().Add(timeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("set connection deadline: %w", err)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		_ = conn.SetDeadline(time.Now())
+	})
+	return func() {
+		stop()
+		_ = conn.SetDeadline(time.Time{})
+	}, nil
 }
 
 // toUTLSCurves converts uint16 slice to utls.CurveID slice.
@@ -452,7 +549,7 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 		CompressionMethods: []uint8{0}, // null compression only (standard)
 		Extensions:         extensions,
 		TLSVersMax:         utls.VersionTLS13,
-		TLSVersMin:         utls.VersionTLS10,
+		TLSVersMin:         utls.VersionTLS12,
 	}
 }
 

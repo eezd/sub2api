@@ -186,7 +186,7 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **并发控制** - 用户级和账号级并发限制
 - **速率限制** - 可配置的请求和 Token 速率限制
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
-- **管理后台** - Web 界面进行监控和管理
+- **OpenAI Transport 插件** - 为 OpenAI OAuth 提供可签名、可灰度发布的独立出站 HTTP/TLS 传输（[安装与发布说明](docs/PLUGIN_INSTALLATION.md)）
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
 
 ## 生态项目
@@ -611,45 +611,44 @@ SECURITY_FORWARDED_CLIENT_IP_HEADERS=True-Client-IP,X-CDN-Client-IP
 - `/auth/register`、`/auth/login`、`/auth/login/2fa`、`/auth/send-verify-code` 已提供服务端兜底限流（Redis 故障时 fail-close）。
 - 推荐将 WAF/CDN 作为第一层防护，服务端限流与响应读取上限作为第二层兜底；两层同时保留，避免旁路流量与误配置风险。
 
-**⚠️ 安全警告：HTTP URL 配置**
+**出站 URL 安全默认值**
 
-当 `security.url_allowlist.enabled=false` 时，系统仅执行最小 URL 校验，且**默认允许 HTTP URL**（开发友好模式，Docker Compose 部署的默认值一致）。生产环境建议显式收紧为仅允许 HTTPS：
+新安装默认启用 `security.url_allowlist`、强制 HTTPS，并拒绝私网、回环、
+链路本地和未指定目标地址。自定义上游应加入
+`security.url_allowlist.upstream_hosts`，不要为了新增供应商直接关闭边界。
 
 ```yaml
 security:
   url_allowlist:
-    enabled: false                # 禁用白名单检查
-    allow_insecure_http: false    # 仅允许 HTTPS（生产环境推荐）
+    enabled: true
+    upstream_hosts:
+      - "api.openai.com"
+      - "api.example-provider.com"
+    allow_private_hosts: false
+    allow_insecure_http: false
 ```
 
-**或通过环境变量：**
+关闭白名单仅作为显式兼容逃生口。只有可信且隔离的开发环境确需访问本地
+HTTP 目标时，才应主动选择以下三个弱化配置：
 
-```bash
-SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
+```yaml
+security:
+  url_allowlist:
+    enabled: false
+    allow_private_hosts: true
+    allow_insecure_http: true
 ```
 
-**允许 HTTP 的风险：**
-- API 密钥和数据以**明文传输**（可被截获）
-- 易受**中间人攻击 (MITM)**
-- **不适合生产环境**
+获取响应中不可信 URL 的请求（包括图片回填）始终只允许公网目标、校验每个
+重定向跳，并拒绝使用配置的远程解析代理。普通上游请求默认不跟随重定向；
+跨源重定向会在凭据转发前被拒绝。
 
-**适用场景：**
-- ✅ 开发/测试环境的本地服务器（http://localhost）
-- ✅ 内网可信端点
-- ✅ 获取 HTTPS 前测试账号连通性
-- ❌ 生产环境（仅使用 HTTPS）
+TLS 指纹模板的创建、更新和删除要求 step-up 认证。模板请求体上限为 64 KiB，
+字段限制为有界的 HTTP/1.1、TLS 1.2+ ClientHello。自定义指纹传输支持直连、
+HTTP CONNECT 和 SOCKS5H；由于未实现代理内层 TLS，HTTPS 代理 URL 会安全失败。
 
-**设置 `allow_insecure_http: false` 后，HTTP URL 会返回如下错误：**
-```
-Invalid base URL: invalid url scheme: http
-```
-
-如关闭 URL 校验或响应头过滤，请加强网络层防护：
-- 出站访问白名单限制上游域名/IP
-- 阻断私网/回环/链路本地地址
-- 强制仅允许 TLS 出站
-- 在反向代理层移除敏感响应头
+如确需弱化 URL 校验，必须在网络边界提供等价控制：出站域名/IP 白名单、
+私网地址阻断、强制 TLS，以及敏感响应头清理。
 
 #### ⚠️ 重要：创建管理员账号
 

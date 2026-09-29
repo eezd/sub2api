@@ -222,6 +222,9 @@ RELEASER_CONTENT=$(<.goreleaser.yaml)
 [[ "$RELEASER_CONTENT" == *'prerelease: false'* ]] || fail "release contract lost: releases are not forced stable"
 [[ "$RELEASER_CONTENT" == *'make_latest: true'* ]] || fail "release contract lost: releases are not marked latest"
 [[ "$RELEASER_CONTENT" != *'ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:latest'* ]] || fail "release contract lost: GHCR latest tag is enabled"
+[[ "$WORKFLOW_CONTENT" == *'scripts/build-openai-transport-plugin.sh'* ]] || fail "release contract lost: OpenAI Transport plugin is not built"
+[[ "$WORKFLOW_CONTENT" == *'SUB2API_PLUGIN_SIGNING_KEY'* ]] || fail "release contract lost: plugin signing key is not configured"
+[[ "$WORKFLOW_CONTENT" == *'gh release upload'* ]] || fail "release contract lost: plugin package is not attached to the GitHub Release"
 
 BASE_VERSION=$UPSTREAM_VERSION
 
@@ -317,6 +320,13 @@ IFS=$'\t' read -r VERIFIED_TAG IS_DRAFT IS_PRERELEASE RELEASE_URL <<<"$RELEASE_S
 [[ "$IS_DRAFT" == "false" ]] || fail "published release is still a draft"
 [[ "$IS_PRERELEASE" == "false" ]] || fail "published release is marked prerelease"
 
+PLUGIN_ASSET="sub2api-openai-transport-${RELEASE_TAG#v}.s2plugin"
+PLUGIN_ASSET_URL=$(gh release view "$RELEASE_TAG" \
+  --repo "$ORIGIN_REPO" \
+  --json assets \
+  --jq ".assets | map(select(.name == \"${PLUGIN_ASSET}\"))[0].url // empty")
+[[ -n "$PLUGIN_ASSET_URL" ]] || fail "GitHub Release is missing plugin asset: ${PLUGIN_ASSET}"
+
 IMAGE="ghcr.io/${ORIGIN_REPO,,}:${RELEASE_TAG#v}"
 
 if command -v docker >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1; then
@@ -336,4 +346,5 @@ printf 'Tag:        %s\n' "$RELEASE_TAG"
 printf 'Workflow:   %s\n' "$RUN_URL"
 printf 'Release:    %s\n' "$RELEASE_URL"
 printf 'Image:      %s\n' "$IMAGE"
+printf 'Plugin:     %s\n' "$PLUGIN_ASSET_URL"
 printf 'GHCR check: %s\n' "$IMAGE_VERIFICATION"

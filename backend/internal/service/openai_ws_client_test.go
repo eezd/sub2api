@@ -1,11 +1,19 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,6 +40,46 @@ func TestCoderOpenAIWSClientDialer_ProxyHTTPClientInvalidURL(t *testing.T) {
 
 	_, err := impl.proxyHTTPClient("://bad")
 	require.Error(t, err)
+}
+
+func TestCoderOpenAIWSClientDialer_PlainWebSocketWithProfileUsesConfiguredProxy(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			if _, _, err := conn.Read(context.Background()); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+	reverseProxy := httputil.NewSingleHostReverseProxy(upstreamURL)
+	var proxyCalls atomic.Int64
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCalls.Add(1)
+		reverseProxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+
+	dialer := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, _, err := dialer.DialWithTLS(
+		ctx,
+		"ws"+strings.TrimPrefix(upstream.URL, "http"),
+		nil,
+		proxy.URL,
+		&tlsfingerprint.Profile{Name: "not-applicable-to-plain-ws"},
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.Equal(t, int64(1), proxyCalls.Load())
 }
 
 func TestCoderOpenAIWSClientDialer_TransportMetricsSnapshot(t *testing.T) {
@@ -109,6 +157,38 @@ func TestCoderOpenAIWSClientDialer_ProxyTransportTLSHandshakeTimeout(t *testing.
 	require.True(t, ok)
 	require.NotNil(t, transport)
 	require.Equal(t, 10*time.Second, transport.TLSHandshakeTimeout)
+}
+
+func TestCoderOpenAIWSClientDialer_TLSProfileTransportAndCacheIsolation(t *testing.T) {
+	dialer := newDefaultOpenAIWSClientDialer()
+	impl, ok := dialer.(*coderOpenAIWSClientDialer)
+	require.True(t, ok)
+
+	firstProfile := &tlsfingerprint.Profile{Name: "same", CipherSuites: []uint16{0x1301}}
+	secondProfile := &tlsfingerprint.Profile{Name: "same", CipherSuites: []uint16{0x1302}}
+	first, err := impl.httpClient("", firstProfile)
+	require.NoError(t, err)
+	firstAgain, err := impl.httpClient("", firstProfile)
+	require.NoError(t, err)
+	second, err := impl.httpClient("", secondProfile)
+	require.NoError(t, err)
+
+	require.Same(t, first, firstAgain)
+	require.NotSame(t, first, second)
+	transport, ok := first.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, transport.DialTLSContext)
+	require.False(t, transport.ForceAttemptHTTP2)
+}
+
+func TestCoderOpenAIWSClientDialer_TLSProfileRejectsHTTP2ALPN(t *testing.T) {
+	dialer := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	client, err := dialer.httpClient("", &tlsfingerprint.Profile{
+		Name:          "h2",
+		ALPNProtocols: []string{"h2", "http/1.1"},
+	})
+	require.ErrorContains(t, err, "does not support h2 ALPN")
+	require.Nil(t, client)
 }
 
 func TestCoderOpenAIWSClientConn_DoesNotSupportIdlePingWithoutReader(t *testing.T) {

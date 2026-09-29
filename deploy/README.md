@@ -615,6 +615,17 @@ Sub2API supports TLS fingerprint simulation to make requests appear as if they c
 - JA4: `t13d5911h1_a33745022dd6_1f22a2ca17c4`
 - Profile selection: `accountID % profileCount`
 
+
+### Per-account OpenAI ClientHello
+
+OpenAI OAuth, setup-token, and API-key accounts can opt in independently through **TLS ClientHello Profile** in the create/edit account dialog. Enabling it without selecting a custom profile uses **Built-in Default**. Migration `239_seed_codex_debian13_tls_profile.sql` also installs the protected `Codex CLI 0.152.0 / Debian 13 / x86_64` profile, captured from the official Codex CLI; its JA3 hash is `0b85eb0d4981e69064e40753e4f0ac5f`.
+
+This transport-level setting is separate from **Codex fingerprint convergence**, which controls application identifiers. The selected ClientHello applies to OpenAI forwarding, automatic Codex usage probes, account tests, model-list requests, ticket harvesting, Responses WebSockets, and Live sideband WebSockets. HTTP and SOCKS5 proxies are preserved. A plaintext `ws://` custom endpoint has no TLS handshake, so the configured proxy is still used while the ClientHello profile is ignored for that hop. HTTPS proxy URLs are rejected for custom ClientHello profiles because the transport cannot safely preserve both proxy and upstream TLS semantics.
+
+The current custom ClientHello transport is HTTP/1.1-only. Profile creation and updates reject `h2` ALPN, and pre-existing `h2` profiles fail closed at runtime instead of negotiating HTTP/2 and sending HTTP/1.1 bytes. Ticket-harvest clients also use a dedicated no-reuse transport so each attempt opens a fresh proxy tunnel.
+
+OpenAI OAuth accounts routed through an enabled plugin binding cannot also use a custom TLS ClientHello profile. Forwarding, account and usage probes, model-list requests, and Live sideband connections fail closed with an explicit error instead of bypassing the plugin. Disable one of the two account features before retrying.
+
 ### Configuration
 
 ```yaml

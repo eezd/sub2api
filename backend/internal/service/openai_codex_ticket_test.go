@@ -435,8 +435,9 @@ func TestRefreshOpenAICodexTickets_LimitsConcurrentProbes(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
-		Enabled: true,
-		Models:  []string{openAICodexTicketDefaultModel},
+		Enabled:         true,
+		Models:          []string{openAICodexTicketDefaultModel},
+		HarvestProxyURL: "socks5h://proxy.example.com:1080",
 	}, upstream)
 	svc.accountRepo = repo
 

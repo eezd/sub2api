@@ -2,7 +2,7 @@
 
 本文面向希望为 Sub2API 开发、打包和发布插件的团队。插件是独立进程和静态 UI 组成的 `.s2plugin` 包，宿主通过稳定的 gRPC 协议调用它。本文以当前宿主已经定义的 `openai.oauth.outbound_transport.v1` 能力作为协议示例，说明开发者需要准备什么、哪些职责属于插件、哪些职责仍由 Sub2API 负责。
 
-本文不是一个可直接安装的完整插件，也不代表 Sub2API 已经发布对应的官方插件包。当前文档主要描述公开协议、宿主边界和开发流程。后续是否发布可安装包、支持哪些 Provider，以及如何提供示例仓库，都需要另行公告。
+仓库已提供官方 OpenAI Transport 插件源码（`plugins/openai-transport/`）、签名包构建脚本和[安装与发布说明](PLUGIN_INSTALLATION.md)。本文聚焦插件协议与通用开发边界；官方插件的安装、灰度、升级和回滚以安装说明为准。
 
 ## 1. 准备开发环境
 
@@ -20,7 +20,7 @@
 - `backend/pkg/pluginapi/v1/manifest.schema.json`：包清单 JSON Schema；
 - `backend/pkg/pluginapi/docs/`：开发、UI Bridge、包格式和安全边界说明。
 
-目前暂未提供可直接复制的官方示例源码。开发者可以按照本文的目录和协议说明创建自己的插件工程；示例仓库发布后，会在本文补充正式的获取地址、目录说明和版本要求。公开协议始终以 `backend/pkg/pluginapi/` 为准。
+`plugins/openai-transport/` 是可阅读的官方实现，可用于了解真实配置 UI、HTTP/TLS Transport 和签名包布局。新 Provider 或第三方插件仍需按照本文的目录和协议说明实现自己的运行时与构建流程；公开契约以 `backend/pkg/pluginapi/` 为准。
 
 ## 2. 创建插件工程
 
@@ -143,24 +143,16 @@ UI 是插件包内的静态页面，不需要修改 Sub2API 前端源码。宿�
 
 ## 7. 生成密钥并签名
 
-生产包应始终签名，宿主默认拒绝未签名包。可以使用插件工程中的密钥生成工具生成一对 Ed25519 密钥；示例仓库发布后会提供标准工具和完整命令：
+生产包应始终签名，宿主默认拒绝未签名包。第三方发布者可用 OpenSSL 生成 Ed25519 私钥，并导出供 `trusted_publishers` 使用的 Base64 原始公钥：
 
 ```bash
-go run ./tools/keygen -out build/keys/my-publisher
+openssl genpkey -algorithm ED25519 -out my-publisher.private.pem
+openssl pkey -in my-publisher.private.pem -pubout -outform DER | tail -c 32 | base64 | tr -d '\n'
 ```
 
-生成的 `my-publisher.private` 只保存在受控的开发机或 CI Secret 中，不能提交到源码仓库、插件包或部署服务器。公钥是 Base64 文本，可以提供给部署者。
+私钥只保存在受控开发机或 CI Secret 中，不能提交到源码仓库、插件包或部署服务器。签名覆盖最终 `manifest.json` 的精确原始字节；清单中的文件哈希再覆盖运行时和 UI 文件。签名完成后不要重新格式化 `manifest.json`。
 
-插件工程的 `build.sh` 应调用标准打包器。自定义发布者密钥时必须同时提供 `-signing-key` 和 `-key-id`：
-
-```bash
-./build.sh \
-  -signing-key /安全目录/my-publisher.private \
-  -key-id my-publisher-v1 \
-  -output dist/my-openai-plugin.s2plugin
-```
-
-签名覆盖最终 `manifest.json` 的精确字节；清单中的文件哈希再覆盖运行时和 UI 文件。签名完成后不要重新格式化 `manifest.json`。
+仓库中的 `scripts/build-openai-transport-plugin.sh` 与 `backend/cmd/s2plugin-packager` 专用于官方 OpenAI Transport，不是通用第三方打包器。官方 Release 工作流通过 Secret `SUB2API_PLUGIN_SIGNING_KEY` 取得私钥并生成五个平台运行时包；第三方插件必须使用自己的构建器，且不得把私钥放入命令参数或日志。
 
 部署者在 Sub2API 配置文件中追加公钥：
 
@@ -177,23 +169,22 @@ plugins:
 
 ## 8. 构建、测试和安装
 
-在插件目录执行：
+在仓库根目录验证官方 OpenAI Transport：
 
 ```bash
-go test ./... -count=1
-node --check ui/assets/bridge-v1.js
-node --check ui/assets/app.js
-./build.sh
-unzip -t dist/*.s2plugin
+node --check plugins/openai-transport/ui/assets/bridge-v1.js
+node --check plugins/openai-transport/ui/assets/app.js
+(cd backend && go test ./internal/openaitransportplugin ./cmd/s2plugin-packager)
 ```
 
-回到 Sub2API 仓库根目录后，再使用真实构建包运行宿主集成测试：
+发布构建由 `scripts/build-openai-transport-plugin.sh` 完成交叉编译、清单与文件哈希生成、Ed25519 签名和确定性归档；版本发布说明见 [`backend/pkg/pluginapi/docs/package-format.md`](../backend/pkg/pluginapi/docs/package-format.md)。构建后的真实包可用宿主进程集成测试：
 
 ```bash
-cd ../..
-SUB2API_TEST_PLUGIN_PACKAGE=plugins/my-openai-plugin/dist/my-openai-plugin.s2plugin \
+SUB2API_TEST_PLUGIN_PACKAGE=/absolute/path/to/openai-transport.s2plugin \
   go test ./backend/internal/service -run '^TestPluginRuntimeIntegration$' -count=1
 ```
+
+第三方插件须在自己的工程中运行对应的构建、签名和单元测试，并将真实 `.s2plugin` 路径传给宿主集成测试。
 
 最低测试集应覆盖配置默认值和边界值、插件身份、请求和响应分块、流式响应、上下文取消、插件退出、代理开关、包哈希、签名、路径安全、目标平台运行时以及 UI Bridge 的加载、保存、测试、错误和超时。
 

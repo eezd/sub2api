@@ -451,7 +451,20 @@ func (s *OpenAIGatewayService) dialLiveSideband(ctx context.Context, record *Liv
 		return nil, err
 	}
 	target := strings.TrimRight(chatGPTLiveSidebandBaseURL, "/") + "/" + url.PathEscape(record.CallID)
-	conn, status, _, err := s.getOpenAIWSPassthroughDialer().Dial(ctx, target, headers, resolveAccountProxyURL(account))
+	dialer := s.getOpenAIWSPassthroughDialer()
+	profile := s.resolveTLSProfile(account)
+	if err := rejectOpenAIPluginTLSProfile(s.pluginManager, account, profile != nil); err != nil {
+		return nil, err
+	}
+	var conn openAIWSClientConn
+	var status int
+	if profile == nil {
+		conn, status, _, err = dialer.Dial(ctx, target, headers, resolveAccountProxyURL(account))
+	} else if tlsDialer, ok := dialer.(openAIWSTLSClientDialer); ok {
+		conn, status, _, err = tlsDialer.DialWithTLS(ctx, target, headers, resolveAccountProxyURL(account), profile)
+	} else {
+		return nil, errors.New("openai live sideband dialer does not support TLS ClientHello profiles")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("dial live sideband (status %d): %w", status, err)
 	}

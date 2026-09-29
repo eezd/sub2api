@@ -1082,7 +1082,7 @@ type GatewayConfig struct {
 	// Scheduling: 账号调度相关配置
 	Scheduling GatewaySchedulingConfig `mapstructure:"scheduling"`
 
-	// TLSFingerprint: TLS指纹伪装配置
+	// TLSFingerprint: TLS ClientHello profile 配置
 	TLSFingerprint TLSFingerprintConfig `mapstructure:"tls_fingerprint"`
 
 	// UsageRecord: 使用量记录异步队列配置（有界队列 + 固定 worker）
@@ -1429,8 +1429,8 @@ type GatewayUsageRecordConfig struct {
 	AutoScaleCooldownSeconds int `mapstructure:"auto_scale_cooldown_seconds"`
 }
 
-// TLSFingerprintConfig TLS指纹伪装配置
-// 用于模拟 Claude CLI (Node.js) 的 TLS 握手特征，避免被识别为非官方客户端
+// TLSFingerprintConfig TLS ClientHello profile 配置。
+// 只控制 TLS 握手；不会修改请求头或应用层身份。
 type TLSFingerprintConfig struct {
 	// Enabled: 是否全局启用TLS指纹功能
 	Enabled bool `mapstructure:"enabled"`
@@ -2066,7 +2066,7 @@ func setDefaults() {
 	viper.SetDefault("webauthn.rp_origins", []string{})
 
 	// Security
-	viper.SetDefault("security.url_allowlist.enabled", false)
+	viper.SetDefault("security.url_allowlist.enabled", true)
 	viper.SetDefault("security.url_allowlist.upstream_hosts", []string{
 		"api.openai.com",
 		"api.anthropic.com",
@@ -2085,8 +2085,8 @@ func setDefaults() {
 		"raw.githubusercontent.com",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
-	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
 	viper.SetDefault("security.response_headers.force_remove", []string{})
@@ -2562,7 +2562,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.usage_record.auto_scale_cooldown_seconds", 10)
 	viper.SetDefault("gateway.user_group_rate_cache_ttl_seconds", 30)
 	viper.SetDefault("gateway.models_list_cache_ttl_seconds", 15)
-	// TLS指纹伪装配置（默认关闭，需要账号级别单独启用）
+	// TLS ClientHello profile 全局能力开关；账号仍需显式启用并选择 profile。
 	// 用户消息串行队列默认值
 	viper.SetDefault("gateway.user_message_queue.enabled", false)
 	viper.SetDefault("gateway.user_message_queue.lock_ttl_ms", 120000)

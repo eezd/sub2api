@@ -159,5 +159,9 @@ output/
 
 # Vitest / Vite cache at repo root
 .vite/
-# 本地闭源插件开发目录及构建产物不进入 Sub2API 仓库
-/plugins/
+# Local plugin workspaces and build output stay ignored; package the official UI sources.
+/plugins/*
+!/plugins/openai-transport/
+/plugins/openai-transport/*
+!/plugins/openai-transport/ui/
+!/plugins/openai-transport/ui/**

@@ -1865,22 +1865,34 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 			return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_UPSTREAM_NOT_CONFIGURED", "Codex models upstream HTTP client is not configured")
 		}
 		req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-		resp, err = s.httpUpstream.Do(req, request.proxyURL, request.accountID, request.accountConcurrency)
+		resp, err = s.httpUpstream.DoWithTLS(req, request.proxyURL, request.accountID, request.accountConcurrency, s.resolveTLSProfile(request.credentialAccount))
 	} else {
+		profile := s.resolveTLSProfile(request.credentialAccount)
 		handled := false
-		if s.pluginManager != nil {
+		if conflictErr := rejectOpenAIPluginTLSProfile(s.pluginManager, request.credentialAccount, profile != nil); conflictErr != nil {
+			err = conflictErr
+		} else if profile == nil && s.pluginManager != nil {
 			resp, handled, err = s.pluginManager.RoundTripOpenAIOAuth(reqCtx, req, request.proxyURL, request.credentialAccount)
 		}
-		if !handled {
-			client, clientErr := httpclient.GetClient(httpclient.Options{
-				ProxyURL:              request.proxyURL,
-				Timeout:               codexModelsManifestRequestTimeout,
-				ResponseHeaderTimeout: 10 * time.Second,
-			})
-			if clientErr != nil {
-				return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_PROXY_INVALID", "invalid proxy configuration: %v", clientErr)
+		if !handled && err == nil {
+			req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+			if profile != nil {
+				if s.httpUpstream == nil {
+					return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_UPSTREAM_NOT_CONFIGURED", "Codex models upstream HTTP client is not configured")
+				}
+				resp, err = s.httpUpstream.DoWithTLS(req, request.proxyURL, request.accountID, request.accountConcurrency, profile)
+			} else {
+				var client *http.Client
+				client, err = httpclient.GetClient(httpclient.Options{
+					ProxyURL:              request.proxyURL,
+					Timeout:               codexModelsManifestRequestTimeout,
+					ResponseHeaderTimeout: 10 * time.Second,
+				})
+				if err != nil {
+					return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_PROXY_INVALID", "invalid proxy configuration: %v", err)
+				}
+				resp, err = client.Do(req)
 			}
-			resp, err = client.Do(req)
 		}
 	}
 	if err != nil {

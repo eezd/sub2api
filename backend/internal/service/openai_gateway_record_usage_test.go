@@ -222,8 +222,7 @@ func i64p(v int64) *int64 {
 func newOpenAIRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo UserRepository, subRepo UserSubscriptionRepository, rateRepo UserGroupRateRepository) *OpenAIGatewayService {
 	cfg := &config.Config{}
 	cfg.Default.RateMultiplier = 1.1
-	svc := NewOpenAIGatewayService(
-		nil,
+	svc := NewOpenAIGatewayService(nil,
 		usageRepo,
 		nil,
 		userRepo,
@@ -245,6 +244,7 @@ func newOpenAIRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo U
 		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
+		nil, // tlsFPProfileService
 	)
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		rateRepo,

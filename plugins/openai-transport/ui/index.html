@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenAI Transport</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">OPENAI OAUTH · OUTBOUND TRANSPORT</p>
+          <h1>OpenAI Transport</h1>
+          <p class="summary">独立进程接管 OpenAI OAuth 出站 HTTP/TLS；账号调度、Token 生命周期、SSE 与计费仍由 Sub2API 核心处理。</p>
+        </div>
+        <div id="healthBadge" class="health health--pending" aria-live="polite">读取状态</div>
+      </header>
+
+      <section class="status-grid" aria-label="运行状态">
+        <article class="metric"><span>ClientHello</span><strong id="statusProfile">—</strong></article>
+        <article class="metric"><span>活动请求</span><strong id="statusActive">—</strong></article>
+        <article class="metric"><span>累计请求</span><strong id="statusRequests">—</strong></article>
+        <article class="metric"><span>传输池</span><strong id="statusPool">—</strong></article>
+      </section>
+      <p id="statusMessage" class="status-message" role="status"></p>
+
+      <section class="panel" aria-label="传输策略">
+        <div class="section-heading">
+          <div>
+            <h2>传输策略</h2>
+            <p>Node.js 24.x 使用固定 ClientHello 且仅协商 HTTP/1.1；Go 默认传输支持 HTTP/2。</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>ClientHello Profile</span>
+            <select id="clientHelloProfile" name="client_hello_profile">
+              <option value="nodejs_24">Node.js 24.x（自定义指纹）</option>
+              <option value="go_default">Go 默认 TLS</option>
+            </select>
+          </label>
+          <label>
+            <span>账号代理</span>
+            <select id="proxyMode" name="proxy_mode">
+              <option value="inherit">继承账号代理</option>
+              <option value="disabled">忽略账号代理（直连）</option>
+            </select>
+          </label>
+          <label>
+            <span>请求总超时（秒）</span>
+            <input id="requestTimeout" type="number" min="0" max="3600" step="1" />
+            <small>0 表示不额外限制，适用于长流式响应。</small>
+          </label>
+          <label>
+            <span>响应头超时（秒）</span>
+            <input id="responseHeaderTimeout" type="number" min="1" max="600" step="1" />
+          </label>
+          <label>
+            <span>空闲连接超时（秒）</span>
+            <input id="idleConnectionTimeout" type="number" min="1" max="3600" step="1" />
+          </label>
+          <label>
+            <span>最大空闲连接</span>
+            <input id="maxIdleConnections" type="number" min="0" max="10000" step="1" />
+          </label>
+          <label>
+            <span>每主机最大空闲连接</span>
+            <input id="maxIdleConnectionsPerHost" type="number" min="0" max="1000" step="1" />
+          </label>
+          <label>
+            <span>每主机最大连接</span>
+            <input id="maxConnectionsPerHost" type="number" min="0" max="1000" step="1" />
+            <small>0 表示不设置插件级上限。</small>
+          </label>
+        </div>
+
+        <label class="wide-field">
+          <span>附加请求头（JSON 对象）</span>
+          <textarea id="extraHeaders" rows="6" spellcheck="false" placeholder='{"X-Transport-Mode":"plugin"}'></textarea>
+          <small>禁止覆盖 Authorization、Host、Cookie、Content-Length 和逐跳请求头。</small>
+        </label>
+
+        <div class="actions">
+          <button id="reloadButton" class="button button--quiet" type="button">重新载入</button>
+          <button id="testButton" class="button button--secondary" type="button">测试 OpenAI 连通性</button>
+          <button id="saveButton" class="button button--primary" type="button">保存配置</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="assets/bridge-v1.js"></script>
+    <script src="assets/app.js"></script>
+  </body>
+</html>

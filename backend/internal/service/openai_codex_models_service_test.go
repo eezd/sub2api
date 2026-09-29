@@ -25,6 +25,56 @@ import (
 	"golang.org/x/net/http2"
 )
 
+func TestFetchOpenAIModelsUpstreamUsesOAuthAccountProxyWithoutTLSProfile(t *testing.T) {
+	requestedURL := make(chan string, 1)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedURL <- r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"proxied-model"}]}`)
+	}))
+	t.Cleanup(proxy.Close)
+
+	service := &OpenAIGatewayService{}
+	response, err := service.fetchOpenAIModelsUpstream(context.Background(), openAIModelsRequest{
+		url:               "http://models.invalid/v1/models",
+		headers:           make(http.Header),
+		proxyURL:          proxy.URL,
+		credentialAccount: &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+	}, "")
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"object":"list","data":[{"id":"proxied-model"}]}`, string(response.Body))
+	require.Equal(t, "http://models.invalid/v1/models", <-requestedURL)
+}
+
+func TestFetchOpenAIModelsUpstreamRejectsPluginBindingWithTLSProfile(t *testing.T) {
+	manager := &PluginManager{}
+	manager.route.Store(&pluginRoute{pluginID: 1, rolloutPercent: 100, unavailable: "plugin unavailable"})
+	upstream := &pluginRoutingHTTPUpstream{}
+	account := &Account{
+		ID:       8,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{"enable_tls_fingerprint": true},
+	}
+	service := &OpenAIGatewayService{
+		pluginManager:       manager,
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+
+	response, err := service.fetchOpenAIModelsUpstream(context.Background(), openAIModelsRequest{
+		url:               "https://models.invalid/v1/models",
+		headers:           make(http.Header),
+		credentialAccount: account,
+	}, "")
+
+	require.ErrorContains(t, err, errOpenAIPluginTLSProfileUnsupported.Error())
+	require.Nil(t, response)
+	require.Zero(t, upstream.doCalls)
+	require.Zero(t, upstream.doWithTLSCalls)
+}
+
 type codexModelsHTTPUpstreamStub struct {
 	do func(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error)
 }

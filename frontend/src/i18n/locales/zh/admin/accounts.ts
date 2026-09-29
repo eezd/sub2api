@@ -1053,10 +1053,11 @@ export default {
           umqModeSerialize: '串行队列',
         },
         tlsFingerprint: {
-          label: 'TLS 指纹模拟',
-          hint: '模拟 Node.js/Claude Code 客户端的 TLS 指纹',
+          label: 'TLS ClientHello Profile',
+          hint: '显式选择该账号发送的 TLS ClientHello；与 Codex 应用层身份配置相互独立。',
           defaultProfile: '内置默认',
-          randomProfile: '随机'
+          randomProfile: '随机',
+          randomProfileWarning: '随机 Profile 可能与当前 User-Agent、操作系统或架构不配套。'
         },
         sessionIdMasking: {
           label: '会话 ID 伪装',

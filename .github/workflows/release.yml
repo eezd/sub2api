@@ -138,6 +138,28 @@ jobs:
         run: |
           go version | grep -q 'go1.27.0'
 
+      - name: Build signed OpenAI Transport plugin
+        id: plugin_package
+        env:
+          SUB2API_PLUGIN_SIGNING_KEY: ${{ secrets.SUB2API_PLUGIN_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUB2API_PLUGIN_SIGNING_KEY"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME=${{ github.event.inputs.tag }}
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          VERSION=${TAG_NAME#v}
+          ASSET_NAME="sub2api-openai-transport-${VERSION}.s2plugin"
+          bash scripts/build-openai-transport-plugin.sh \
+            --version "$VERSION" \
+            --host-version "$VERSION" \
+            --output "plugin-dist/${ASSET_NAME}"
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset_path=plugin-dist/$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
       # Docker setup for GoReleaser
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -197,6 +219,15 @@ jobs:
           GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
 
+
+      - name: Upload OpenAI Transport plugin to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.plugin_package.outputs.tag }}" \
+            "${{ steps.plugin_package.outputs.asset_path }}" \
+            --repo "${{ github.repository }}" \
+            --clobber
       # Send Telegram notification
       - name: Send Telegram Notification
         if: ${{ env.SIMPLE_RELEASE != 'true' }}

@@ -598,8 +598,7 @@ func TestOpenAIGatewayService_Forward_ReturnErrorWhenOnlyWSv1Enabled(t *testing.
 
 func TestNewOpenAIGatewayService_InitializesOpenAIWSResolver(t *testing.T) {
 	cfg := &config.Config{}
-	svc := NewOpenAIGatewayService(
-		nil,
+	svc := NewOpenAIGatewayService(nil,
 		nil,
 		nil,
 		nil,
@@ -621,6 +620,7 @@ func TestNewOpenAIGatewayService_InitializesOpenAIWSResolver(t *testing.T) {
 		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
+		nil, // tlsFPProfileService
 	)
 
 	decision := svc.getOpenAIWSProtocolResolver().Resolve(nil)

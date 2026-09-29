@@ -34,6 +34,12 @@ func TestPluginRuntimeIntegration(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := testPluginConfig(root, false)
+	publisherKeyID := os.Getenv("SUB2API_TEST_PLUGIN_PUBLISHER_KEY_ID")
+	publisherPublicKey := os.Getenv("SUB2API_TEST_PLUGIN_PUBLISHER_PUBLIC_KEY")
+	require.Equal(t, publisherKeyID == "", publisherPublicKey == "", "测试发布者 key ID 与公钥必须同时提供")
+	if publisherKeyID != "" {
+		cfg.Plugins.TrustedPublishers[publisherKeyID] = publisherPublicKey
+	}
 	installer := NewPluginPackageInstaller(cfg, PluginHostInfo{Version: "0.1.179", BuildType: "release"})
 	installation, err := installer.Install(context.Background(), packageFile, nil)
 	require.NoError(t, err)
@@ -51,13 +57,12 @@ func TestPluginRuntimeIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer runtime.kill()
 	require.NoError(t, runtime.validateAndApplyConfig(context.Background(), []byte(`{
+		"client_hello_profile":"nodejs_24",
 		"request_timeout_seconds":30,
 		"response_header_timeout_seconds":10,
 		"idle_connection_timeout_seconds":30,
 		"max_idle_connections":10,
 		"max_idle_connections_per_host":5,
-		"enable_http2":true,
-		"tls_min_version":"1.2",
 		"proxy_mode":"disabled",
 		"extra_headers":{"X-Plugin-Test":"enabled"}
 	}`)))

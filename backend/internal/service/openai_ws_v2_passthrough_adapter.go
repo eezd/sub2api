@@ -865,6 +865,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if dialer == nil {
 		return errors.New("openai ws passthrough dialer is nil")
 	}
+	tlsProfile := s.resolveTLSProfile(account)
 
 	agentTaskRecoveryTried := false
 	var upstreamConn openAIWSClientConn
@@ -876,7 +877,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			return fmt.Errorf("refresh ws authentication headers: %w", err)
 		}
 		dialCtx, cancelDial := context.WithTimeout(ctx, s.openAIWSDialTimeout())
-		upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(dialCtx, wsURL, headers, proxyURL)
+		if tlsProfile == nil {
+			upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(dialCtx, wsURL, headers, proxyURL)
+		} else if tlsDialer, ok := dialer.(openAIWSTLSClientDialer); ok {
+			upstreamConn, statusCode, handshakeHeaders, err = tlsDialer.DialWithTLS(dialCtx, wsURL, headers, proxyURL, tlsProfile)
+		} else {
+			err = errors.New("openai ws passthrough dialer does not support TLS ClientHello profiles")
+		}
 		cancelDial()
 		if err == nil {
 			break

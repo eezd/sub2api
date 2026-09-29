@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -82,9 +83,10 @@ func (c *liveTestFrameConn) Close() error {
 }
 
 type liveTestDialer struct {
-	conn    *liveTestFrameConn
-	url     string
-	headers http.Header
+	conn       *liveTestFrameConn
+	url        string
+	headers    http.Header
+	tlsProfile *tlsfingerprint.Profile
 }
 
 func (d *liveTestDialer) Dial(
@@ -96,6 +98,17 @@ func (d *liveTestDialer) Dial(
 	d.url = wsURL
 	d.headers = headers.Clone()
 	return d.conn, http.StatusSwitchingProtocols, nil, nil
+}
+
+func (d *liveTestDialer) DialWithTLS(
+	ctx context.Context,
+	wsURL string,
+	headers http.Header,
+	proxyURL string,
+	profile *tlsfingerprint.Profile,
+) (openAIWSClientConn, int, http.Header, error) {
+	d.tlsProfile = profile
+	return d.Dial(ctx, wsURL, headers, proxyURL)
 }
 
 type liveTestAccountRepo struct {
@@ -346,6 +359,7 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Concurrency: 2,
+		Extra:       map[string]any{"enable_tls_fingerprint": true},
 		Credentials: map[string]any{
 			"access_token":       "test-access-token",
 			"chatgpt_account_id": "acct_test",
@@ -377,6 +391,7 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 		cache:                     store,
 		openaiWSPassthroughDialer: dialer,
 		liveAttestationCipher:     attestationCipher,
+		tlsFPProfileService:       &TLSFingerprintProfileService{},
 	}
 	proxyResult := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -426,6 +441,8 @@ func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {
 	require.Equal(t, "Bearer test-access-token", dialer.headers.Get("Authorization"))
 	require.Equal(t, "acct_test", dialer.headers.Get("Chatgpt-Account-Id"))
 	require.Equal(t, `{"v":1,"s":0,"t":"v1.sideband"}`, dialer.headers.Get(liveAttestationHeader))
+	require.NotNil(t, dialer.tlsProfile)
+	require.Equal(t, "Built-in Default (Node.js 24.x)", dialer.tlsProfile.Name)
 	upstream.reads <- liveTestFrame{err: coderws.CloseError{Code: coderws.StatusNormalClosure}}
 	require.ErrorIs(t, <-proxyResult, ErrLiveCallNotFound)
 }

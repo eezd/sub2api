@@ -3089,6 +3089,37 @@
         </div>
       </div>
 
+      <!-- OpenAI TLS ClientHello Profile (independent from Codex application identity) -->
+      <div
+        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.quotaControl.tlsFingerprint.hint') }}</p>
+          </div>
+          <button
+            type="button"
+            data-testid="create-openai-tls-fingerprint-toggle"
+            @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
+            :class="['relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500', tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']"
+          >
+            <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', tlsFingerprintEnabled ? 'translate-x-5' : 'translate-x-0']" />
+          </button>
+        </div>
+        <div v-if="tlsFingerprintEnabled" class="mt-3">
+          <select v-model="tlsFingerprintProfileId" data-testid="create-openai-tls-profile-select" class="input">
+            <option :value="null">{{ t('admin.accounts.quotaControl.tlsFingerprint.defaultProfile') }}</option>
+            <option v-if="tlsFingerprintProfiles.length > 0" :value="-1">{{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfile') }}</option>
+            <option v-for="p in tlsFingerprintProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <p v-if="tlsFingerprintProfileId === -1" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            {{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfileWarning') }}
+          </p>
+        </div>
+      </div>
+
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="form.platform === 'openai' && form.type === 'oauth'"
@@ -3315,6 +3346,7 @@
           </div>
         </div>
       </div>
+
 
       <!-- OpenAI Compact 能力配置 -->
       <div
@@ -5466,6 +5498,17 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     extra.codex_fingerprint_mode = codexFingerprintMode.value
   } else {
     delete extra.codex_fingerprint_mode
+  }
+  if (tlsFingerprintEnabled.value) {
+    extra.enable_tls_fingerprint = true
+    if (tlsFingerprintProfileId.value != null) {
+      extra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
+    } else {
+      delete extra.tls_fingerprint_profile_id
+    }
+  } else {
+    delete extra.enable_tls_fingerprint
+    delete extra.tls_fingerprint_profile_id
   }
   if (openAICompactMode.value !== 'auto') {
     extra.openai_compact_mode = openAICompactMode.value

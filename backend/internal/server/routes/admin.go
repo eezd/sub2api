@@ -101,7 +101,7 @@ func RegisterAdminRoutes(
 		registerErrorPassthroughRoutes(admin, h)
 
 		// TLS 指纹模板管理
-		registerTLSFingerprintProfileRoutes(admin, h)
+		registerTLSFingerprintProfileRoutes(admin, h, stepUpAuth)
 
 		// 本地进程插件管理
 		registerPluginRoutes(admin, h, stepUpAuth)
@@ -739,14 +739,14 @@ func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 	}
 }
 
-func registerTLSFingerprintProfileRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+func registerTLSFingerprintProfileRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	profiles := admin.Group("/tls-fingerprint-profiles")
 	{
 		profiles.GET("", h.Admin.TLSFingerprintProfile.List)
 		profiles.GET("/:id", h.Admin.TLSFingerprintProfile.GetByID)
-		profiles.POST("", h.Admin.TLSFingerprintProfile.Create)
-		profiles.PUT("/:id", h.Admin.TLSFingerprintProfile.Update)
-		profiles.DELETE("/:id", h.Admin.TLSFingerprintProfile.Delete)
+		profiles.POST("", gin.HandlerFunc(stepUpAuth), h.Admin.TLSFingerprintProfile.Create)
+		profiles.PUT("/:id", gin.HandlerFunc(stepUpAuth), h.Admin.TLSFingerprintProfile.Update)
+		profiles.DELETE("/:id", gin.HandlerFunc(stepUpAuth), h.Admin.TLSFingerprintProfile.Delete)
 	}
 }
 

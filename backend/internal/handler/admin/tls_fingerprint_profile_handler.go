@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"errors"
+	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
@@ -8,6 +10,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+const maxTLSFingerprintProfileRequestBytes int64 = 64 << 10
 
 // TLSFingerprintProfileHandler 处理 TLS 指纹模板的 HTTP 请求
 type TLSFingerprintProfileHandler struct {
@@ -88,8 +92,7 @@ func (h *TLSFingerprintProfileHandler) GetByID(c *gin.Context) {
 // POST /api/v1/admin/tls-fingerprint-profiles
 func (h *TLSFingerprintProfileHandler) Create(c *gin.Context) {
 	var req CreateTLSFingerprintProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if !bindTLSFingerprintProfileJSON(c, &req) {
 		return
 	}
 
@@ -113,7 +116,7 @@ func (h *TLSFingerprintProfileHandler) Create(c *gin.Context) {
 
 	created, err := h.service.Create(c.Request.Context(), profile)
 	if err != nil {
-		if _, ok := err.(*model.ValidationError); ok {
+		if _, ok := err.(*model.ValidationError); ok || errors.Is(err, service.ErrTLSFingerprintProfileImmutable) {
 			response.BadRequest(c, err.Error())
 			return
 		}
@@ -134,8 +137,7 @@ func (h *TLSFingerprintProfileHandler) Update(c *gin.Context) {
 	}
 
 	var req UpdateTLSFingerprintProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if !bindTLSFingerprintProfileJSON(c, &req) {
 		return
 	}
 
@@ -205,7 +207,7 @@ func (h *TLSFingerprintProfileHandler) Update(c *gin.Context) {
 
 	updated, err := h.service.Update(c.Request.Context(), profile)
 	if err != nil {
-		if _, ok := err.(*model.ValidationError); ok {
+		if _, ok := err.(*model.ValidationError); ok || errors.Is(err, service.ErrTLSFingerprintProfileImmutable) {
 			response.BadRequest(c, err.Error())
 			return
 		}
@@ -226,9 +228,27 @@ func (h *TLSFingerprintProfileHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+		if errors.Is(err, service.ErrTLSFingerprintProfileImmutable) {
+			response.BadRequest(c, err.Error())
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
 
 	response.Success(c, gin.H{"message": "Profile deleted successfully"})
+}
+
+func bindTLSFingerprintProfileJSON(c *gin.Context, destination any) bool {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTLSFingerprintProfileRequestBytes)
+	if err := c.ShouldBindJSON(destination); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			response.Error(c, http.StatusRequestEntityTooLarge, "Request body exceeds 64 KiB")
+			return false
+		}
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return false
+	}
+	return true
 }

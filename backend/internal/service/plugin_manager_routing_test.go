@@ -15,6 +15,7 @@ import (
 type pluginRoutingHTTPUpstream struct {
 	doCalls        int
 	doWithTLSCalls int
+	lastTLSProfile *tlsfingerprint.Profile
 }
 
 func (u *pluginRoutingHTTPUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
@@ -31,9 +32,10 @@ func (u *pluginRoutingHTTPUpstream) DoWithTLS(
 	proxyURL string,
 	accountID int64,
 	accountConcurrency int,
-	_ *tlsfingerprint.Profile,
+	profile *tlsfingerprint.Profile,
 ) (*http.Response, error) {
 	u.doWithTLSCalls++
+	u.lastTLSProfile = profile
 	return u.Do(request, proxyURL, accountID, accountConcurrency)
 }
 
@@ -103,6 +105,76 @@ func TestOpenAIGatewayPluginRoutingPreservesAPIKeyAndFailsClosedForOAuth(t *test
 	assert.Nil(t, oauthResponse)
 	assert.Contains(t, err.Error(), "插件不可用")
 	assert.Equal(t, 1, upstream.doCalls)
+}
+
+func TestOpenAIGatewayLegacyOAuthPathAppliesExplicitTLSProfile(t *testing.T) {
+	upstream := &pluginRoutingHTTPUpstream{}
+	service := &OpenAIGatewayService{
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com/v1/responses", nil)
+	require.NoError(t, err)
+	account := &Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+		Extra: map[string]any{"enable_tls_fingerprint": true},
+	}
+
+	response, err := service.doOpenAIUpstream(request, "", account)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	_ = response.Body.Close()
+	require.Equal(t, 1, upstream.doWithTLSCalls)
+	require.NotNil(t, upstream.lastTLSProfile)
+	require.Equal(t, "Built-in Default (Node.js 24.x)", upstream.lastTLSProfile.Name)
+}
+
+func TestOpenAIGatewayPluginRoutingRejectsExplicitTLSProfile(t *testing.T) {
+	manager := &PluginManager{}
+	manager.route.Store(&pluginRoute{pluginID: 1, rolloutPercent: 100, unavailable: "plugin unavailable"})
+	upstream := &pluginRoutingHTTPUpstream{}
+	service := &OpenAIGatewayService{
+		pluginManager:       manager,
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+	account := &Account{
+		ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+		Extra: map[string]any{"enable_tls_fingerprint": true},
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com/v1/responses", nil)
+	require.NoError(t, err)
+
+	response, err := service.doOpenAIUpstream(request, "", account)
+
+	require.ErrorIs(t, err, errOpenAIPluginTLSProfileUnsupported)
+	require.Nil(t, response)
+	require.Zero(t, upstream.doCalls)
+	require.Zero(t, upstream.doWithTLSCalls)
+}
+
+func TestOpenAIAccountTestRejectsPluginBindingWithTLSProfile(t *testing.T) {
+	manager := &PluginManager{}
+	manager.route.Store(&pluginRoute{pluginID: 1, rolloutPercent: 100, unavailable: "plugin unavailable"})
+	upstream := &pluginRoutingHTTPUpstream{}
+	service := &AccountTestService{
+		pluginManager:       manager,
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+	account := &Account{
+		ID: 4, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+		Extra: map[string]any{"enable_tls_fingerprint": true},
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com/backend-api/models", nil)
+	require.NoError(t, err)
+
+	response, err := service.doOpenAIAccountTestUpstream(request, "", account, true)
+
+	require.ErrorIs(t, err, errOpenAIPluginTLSProfileUnsupported)
+	require.Nil(t, response)
+	require.Zero(t, upstream.doCalls)
+	require.Zero(t, upstream.doWithTLSCalls)
 }
 
 func TestStablePluginBucketIsDeterministicAndBounded(t *testing.T) {

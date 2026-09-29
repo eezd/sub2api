@@ -61,6 +61,19 @@ ui/assets/...
 
 插件默认保持停用。未签名包默认拒绝安装；`plugins.allow_unsigned` 只应用于开发者自己构建的本地调试包。
 
+## 官方 OpenAI Transport 发布包
+
+每个定制 GitHub Release 都附带 `sub2api-openai-transport-<version>.s2plugin`。该单一文件包含 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 运行时以及沙箱配置 UI；无需在 Sub2API 容器内安装构建工具。
+
+安装顺序：
+
+1. 从与当前 Sub2API 版本相同的 GitHub Release 下载 `.s2plugin`。
+2. 在管理员「插件管理」上传；官方发布者公钥已内置，页面应显示签名为「受信任」。
+3. 打开配置页面，选择 `nodejs_24` 自定义 ClientHello 或 `go_default` 标准 TLS，保存并执行连通性测试。
+4. 先用较小灰度启用，确认运行状态与请求错误后再调整到 100%。
+
+`nodejs_24` 固定使用 HTTP/1.1，支持直连、HTTP CONNECT 和 SOCKS5/SOCKS5H 账号代理，不支持 HTTPS 代理；需要 HTTPS 代理或 HTTP/2 时使用 `go_default`。插件只接管 OpenAI OAuth 出站请求，账号上显式启用的宿主 TLS Profile 与插件绑定互斥。
+
 ## 兼容性
 
 清单必须同时声明：

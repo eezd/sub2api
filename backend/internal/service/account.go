@@ -2383,23 +2383,27 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
 }
 
-// IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
-// 仅适用于 Anthropic OAuth/SetupToken 类型账号
-// 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
+// SupportsTLSFingerprintProfile reports whether this account type has a
+// transport path capable of applying an explicitly selected ClientHello profile.
+func (a *Account) SupportsTLSFingerprintProfile() bool {
+	if a == nil {
+		return false
+	}
+	if a.Platform == PlatformOpenAI {
+		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
+	}
+	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
+}
+
+// IsTLSFingerprintEnabled reports whether an eligible account explicitly enables
+// a TLS ClientHello profile. Application-layer identity settings are intentionally
+// not consulted here.
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// 仅支持 Anthropic OAuth/SetupToken 账号
-	if !a.IsAnthropicOAuthOrSetupToken() {
+	if !a.SupportsTLSFingerprintProfile() || a.Extra == nil {
 		return false
 	}
-	if a.Extra == nil {
-		return false
-	}
-	if v, ok := a.Extra["enable_tls_fingerprint"]; ok {
-		if enabled, ok := v.(bool); ok {
-			return enabled
-		}
-	}
-	return false
+	enabled, _ := a.Extra["enable_tls_fingerprint"].(bool)
+	return enabled
 }
 
 // GetTLSFingerprintProfileID 获取账号绑定的 TLS 指纹模板 ID

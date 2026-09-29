@@ -25,7 +25,7 @@ const (
 	pluginArchiveMaxFiles                    = 512
 	builtInOpenAITransportPluginID           = "local.sub2api.openai-transport"
 	builtInOpenAITransportPublisherKeyID     = "sub2api-openai-transport-v1"
-	builtInOpenAITransportPublisherKeyBase64 = "MqzSXAoG0iVR5kKWrC+mqcCeExkrT6zAr2WpQ4sA+yc="
+	builtInOpenAITransportPublisherKeyBase64 = "jLa73aIxlG7/VDZlXH0eEbGDmp0pd2QIvaQnwBqxsh8="
 )
 
 type PluginPackageInstaller struct {

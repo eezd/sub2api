@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -10,6 +11,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
+
+const codexDebianTLSFingerprintProfileName = "Codex CLI 0.152.0 / Debian 13 / x86_64"
+
+var ErrTLSFingerprintProfileImmutable = errors.New("built-in TLS fingerprint profile is immutable")
 
 // TLSFingerprintProfileRepository 定义 TLS 指纹模板的数据访问接口
 type TLSFingerprintProfileRepository interface {
@@ -83,6 +88,9 @@ func (s *TLSFingerprintProfileService) GetByID(ctx context.Context, id int64) (*
 
 // Create 创建模板
 func (s *TLSFingerprintProfileService) Create(ctx context.Context, profile *model.TLSFingerprintProfile) (*model.TLSFingerprintProfile, error) {
+	if profile != nil && profile.Name == codexDebianTLSFingerprintProfileName {
+		return nil, ErrTLSFingerprintProfileImmutable
+	}
 	if err := profile.Validate(); err != nil {
 		return nil, err
 	}
@@ -101,6 +109,15 @@ func (s *TLSFingerprintProfileService) Create(ctx context.Context, profile *mode
 
 // Update 更新模板
 func (s *TLSFingerprintProfileService) Update(ctx context.Context, profile *model.TLSFingerprintProfile) (*model.TLSFingerprintProfile, error) {
+	if profile != nil {
+		existing, err := s.repo.GetByID(ctx, profile.ID)
+		if err != nil {
+			return nil, err
+		}
+		if (existing != nil && existing.Name == codexDebianTLSFingerprintProfileName) || profile.Name == codexDebianTLSFingerprintProfileName {
+			return nil, ErrTLSFingerprintProfileImmutable
+		}
+	}
 	if err := profile.Validate(); err != nil {
 		return nil, err
 	}
@@ -119,6 +136,13 @@ func (s *TLSFingerprintProfileService) Update(ctx context.Context, profile *mode
 
 // Delete 删除模板
 func (s *TLSFingerprintProfileService) Delete(ctx context.Context, id int64) error {
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing != nil && existing.Name == codexDebianTLSFingerprintProfileName {
+		return ErrTLSFingerprintProfileImmutable
+	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -132,8 +156,8 @@ func (s *TLSFingerprintProfileService) Delete(ctx context.Context, id int64) err
 
 // --- 热路径：运行时 Profile 查找 ---
 
-// GetProfileByID 根据 ID 从本地缓存获取 Profile（用于 DoWithTLS 热路径）
-// 返回 nil 表示未找到，调用方应 fallback 到内置默认 Profile
+// GetProfileByID 根据 ID 从本地缓存获取 Profile（用于 DoWithTLS 热路径）。
+// 返回 nil 表示配置的 profile 不存在；调用方不得替换成其它指纹。
 func (s *TLSFingerprintProfileService) GetProfileByID(id int64) *tlsfingerprint.Profile {
 	s.localMu.RLock()
 	p, ok := s.localCache[id]
@@ -168,30 +192,31 @@ func (s *TLSFingerprintProfileService) getRandomProfile() *tlsfingerprint.Profil
 	return profiles[rand.IntN(len(profiles))].ToTLSProfile()
 }
 
-// ResolveTLSProfile 根据 Account 的配置解析出运行时 TLS Profile
+// ResolveTLSProfile 根据 Account 的配置解析出运行时 TLS Profile。
 //
-// 逻辑：
-//  1. 未启用 TLS 指纹 → 返回 nil（不伪装）
-//  2. 启用 + 绑定了 profile_id → 从缓存查找对应 profile
-//  3. 启用 + 未绑定或找不到 → 返回空 Profile（使用代码内置默认值）
+//  1. 未启用 → nil
+//  2. 正数 ID → 对应 profile；ID 不存在时 nil
+//  3. -1 → 随机 profile；没有可选 profile 时 nil
+//  4. 0 → 显式使用代码内置默认 profile
 func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsfingerprint.Profile {
 	if account == nil || !account.IsTLSFingerprintEnabled() {
 		return nil
 	}
 	id := account.GetTLSFingerprintProfileID()
 	if id > 0 {
-		if p := s.GetProfileByID(id); p != nil {
-			return p
-		}
+		return s.GetProfileByID(id)
 	}
 	if id == -1 {
-		// 随机选择一个 profile
-		if p := s.getRandomProfile(); p != nil {
-			return p
-		}
+		return s.getRandomProfile()
 	}
-	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值
 	return &tlsfingerprint.Profile{Name: "Built-in Default (Node.js 24.x)"}
+}
+
+func (s *OpenAIGatewayService) resolveTLSProfile(account *Account) *tlsfingerprint.Profile {
+	if s == nil || s.tlsFPProfileService == nil {
+		return nil
+	}
+	return s.tlsFPProfileService.ResolveTLSProfile(account)
 }
 
 // --- 缓存管理 ---
@@ -224,8 +249,15 @@ func (s *TLSFingerprintProfileService) reloadFromDB(ctx context.Context) error {
 
 func (s *TLSFingerprintProfileService) setLocalCache(profiles []*model.TLSFingerprintProfile) {
 	m := make(map[int64]*model.TLSFingerprintProfile, len(profiles))
-	for _, p := range profiles {
-		m[p.ID] = p
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		if err := profile.Validate(); err != nil {
+			logger.LegacyPrintf("service.tls_fp_profile", "[TLSFPProfileService] Ignoring invalid profile ID=%d: %v", profile.ID, err)
+			continue
+		}
+		m[profile.ID] = profile
 	}
 
 	s.localMu.Lock()

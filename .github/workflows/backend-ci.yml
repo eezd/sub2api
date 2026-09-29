@@ -34,6 +34,24 @@ jobs:
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.27.0'
+      - name: Build signed plugin integration fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm ED25519 -out /tmp/sub2api-plugin-test-key.pem
+          PUBLIC_KEY=$(openssl pkey -in /tmp/sub2api-plugin-test-key.pem -pubout -outform DER | tail -c 32 | base64 -w0)
+          {
+            echo "SUB2API_TEST_PLUGIN_PUBLISHER_KEY_ID=sub2api-integration-test"
+            echo "SUB2API_TEST_PLUGIN_PUBLISHER_PUBLIC_KEY=$PUBLIC_KEY"
+            echo 'SUB2API_TEST_PLUGIN_PACKAGE=/tmp/sub2api-openai-transport-test.s2plugin'
+          } >> "$GITHUB_ENV"
+          SUB2API_PLUGIN_SIGNING_KEY="$(cat /tmp/sub2api-plugin-test-key.pem)" \
+          SUB2API_PLUGIN_PUBLISHER_KEY_ID=sub2api-integration-test \
+            bash scripts/build-openai-transport-plugin.sh \
+              --version 0.1.179 \
+              --host-version 0.1.179 \
+              --output /tmp/sub2api-openai-transport-test.s2plugin
+          rm -f /tmp/sub2api-plugin-test-key.pem
       - name: Unit tests
         working-directory: backend
         run: make test-unit

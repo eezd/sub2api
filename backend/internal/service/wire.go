@@ -239,6 +239,7 @@ func ProvideAccountUsageService(
 		identityCache,
 		tlsFPProfileService,
 	)
+	service.openAIGatewayService = openAIGatewayService
 	service.agentIdentityWS = openAIGatewayService
 	return service
 }

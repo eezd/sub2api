@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -29,6 +30,31 @@ func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, 
 		r.rateLimitCh <- resetAt
 	}
 	return nil
+}
+
+func TestAccountUsageService_CodexProbeRejectsPluginTLSProfileConflict(t *testing.T) {
+	manager := &PluginManager{}
+	manager.route.Store(&pluginRoute{pluginID: 1, rolloutPercent: 100, unavailable: "plugin unavailable"})
+	svc := &AccountUsageService{
+		openAIGatewayService: &OpenAIGatewayService{
+			pluginManager:       manager,
+			tlsFPProfileService: &TLSFingerprintProfileService{},
+		},
+	}
+	account := &Account{
+		ID:       71,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "test-access-token",
+		},
+		Extra: map[string]any{"enable_tls_fingerprint": true},
+	}
+
+	_, err := svc.probeOpenAICodexSnapshot(context.Background(), account)
+	if !errors.Is(err, errOpenAIPluginTLSProfileUnsupported) {
+		t.Fatalf("probeOpenAICodexSnapshot() error = %v, want %v", err, errOpenAIPluginTLSProfileUnsupported)
+	}
 }
 
 func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
