@@ -607,6 +607,33 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export type AccountDegradationCheckType = 'model_trace' | 'svg_animation'
+
+export interface AccountDegradationCheckResult {
+  id: number
+  account_id: number
+  check_type: AccountDegradationCheckType
+  requested_model: string
+  tested_model: string
+  status: 'success' | 'error'
+  result: Record<string, unknown>
+  output_text?: string
+  error_message?: string
+  created_at: string
+}
+
+export async function getDegradationCheckHistory(
+  id: number,
+  checkType: AccountDegradationCheckType,
+  limit: number = 10
+): Promise<AccountDegradationCheckResult[]> {
+  const { data } = await apiClient.get<AccountDegradationCheckResult[]>(
+    `/admin/accounts/${id}/degradation-check-history`,
+    { params: { type: checkType, limit } }
+  )
+  return data
+}
+
 export interface SyncUpstreamModelsResult {
   models: string[]
   metadata?: Record<string, UpstreamModelMetadata>
@@ -1160,6 +1187,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getDegradationCheckHistory,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,

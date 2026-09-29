@@ -1288,6 +1288,14 @@ type TestAccountRequest struct {
 	AudioDataURL string `json:"audio_data_url"`
 }
 
+type ModelTraceRequest struct {
+	ModelID string `json:"model_id" binding:"required"`
+}
+
+type SVGAnimationTestRequest struct {
+	ModelID string `json:"model_id" binding:"required"`
+}
+
 type SyncFromCRSRequest struct {
 	BaseURL            string   `json:"base_url" binding:"required"`
 	Username           string   `json:"username" binding:"required"`
@@ -1331,6 +1339,97 @@ func (h *AccountHandler) Test(c *gin.Context) {
 			_ = c.Error(err)
 		}
 	}
+}
+
+// ModelTrace runs closed-set GPT/Claude fingerprint attribution with the
+// administrator-selected model and streams probe progress over SSE.
+// POST /api/v1/admin/accounts/:id/model-trace
+func (h *AccountHandler) ModelTrace(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.accountTestService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+
+	var req ModelTraceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "model_id is required")
+		return
+	}
+	req.ModelID = strings.TrimSpace(req.ModelID)
+	if req.ModelID == "" {
+		response.BadRequest(c, "model_id is required")
+		return
+	}
+
+	_ = h.accountTestService.DetectModelTrace(c, accountID, req.ModelID)
+}
+
+// SVGAnimationTest runs the fixed pelican-on-a-bicycle HTML/SVG prompt once.
+// POST /api/v1/admin/accounts/:id/svg-animation-test
+func (h *AccountHandler) SVGAnimationTest(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.accountTestService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+
+	var req SVGAnimationTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "model_id is required")
+		return
+	}
+	req.ModelID = strings.TrimSpace(req.ModelID)
+	if req.ModelID == "" {
+		response.BadRequest(c, "model_id is required")
+		return
+	}
+
+	_ = h.accountTestService.TestSVGAnimation(c, accountID, req.ModelID)
+}
+
+// ListDegradationCheckHistory returns persisted ModelTrace or SVG-animation results.
+// GET /api/v1/admin/accounts/:id/degradation-check-history
+func (h *AccountHandler) ListDegradationCheckHistory(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.accountTestService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+
+	checkType, err := service.ParseAccountDegradationCheckType(c.Query("type"))
+	if err != nil {
+		response.BadRequest(c, "type must be model_trace or svg_animation")
+		return
+	}
+	limit := 10
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		parsed, parseErr := strconv.Atoi(rawLimit)
+		if parseErr != nil || parsed <= 0 {
+			response.BadRequest(c, "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+
+	results, err := h.accountTestService.ListDegradationCheckHistory(c.Request.Context(), accountID, checkType, limit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, results)
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.

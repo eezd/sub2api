@@ -224,6 +224,226 @@
         </button>
       </div>
 
+      <section
+        v-if="supportsModelTrace"
+        data-test="model-trace-panel"
+        class="overflow-hidden rounded-xl border border-cyan-200 bg-cyan-50/60 dark:border-cyan-900/70 dark:bg-cyan-950/20"
+      >
+        <div class="flex items-start justify-between gap-3 border-b border-cyan-200/80 px-4 py-3 dark:border-cyan-900/70">
+          <div class="flex min-w-0 items-start gap-3">
+            <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-600 text-white shadow-sm shadow-cyan-900/20">
+              <Icon name="chart" size="sm" :stroke-width="2" />
+            </div>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="text-sm font-semibold text-cyan-950 dark:text-cyan-100">
+                  {{ t('admin.accounts.modelTrace.title') }}
+                </h3>
+                <span class="rounded border border-cyan-300 bg-white/80 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-cyan-700 dark:border-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300">
+                  ModelTrace
+                </span>
+              </div>
+              <p class="mt-1 text-xs leading-5 text-cyan-800/80 dark:text-cyan-200/70">
+                {{ t('admin.accounts.modelTrace.description') }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-3 p-4">
+          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:text-cyan-200">
+                {{ t('admin.accounts.modelTrace.selectModel') }}
+              </label>
+              <Select
+                v-model="modelTraceModelId"
+                data-test="model-trace-model"
+                :options="modelTraceModelOptions"
+                :disabled="loadingModels || modelTraceStatus === 'running' || status === 'connecting'"
+                value-key="id"
+                label-key="display_name"
+                :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.modelTrace.selectModelPlaceholder')"
+              />
+            </div>
+            <button
+              type="button"
+              data-test="model-trace-start"
+              class="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-cyan-300 dark:bg-cyan-600 dark:hover:bg-cyan-500 dark:disabled:bg-cyan-900"
+              :disabled="!canStartModelTrace"
+              @click="startModelTrace"
+            >
+              <Icon
+                :name="modelTraceStatus === 'running' ? 'refresh' : 'chart'"
+                size="sm"
+                :class="modelTraceStatus === 'running' ? 'animate-spin' : ''"
+                :stroke-width="2"
+              />
+              {{ modelTraceStatus === 'running' ? t('admin.accounts.modelTrace.running') : t('admin.accounts.modelTrace.start') }}
+            </button>
+          </div>
+
+          <p class="text-[11px] leading-4 text-cyan-800/70 dark:text-cyan-300/60">
+            {{ t('admin.accounts.modelTrace.costHint') }}
+          </p>
+
+          <div v-if="modelTraceStatus === 'running'" class="rounded-lg border border-cyan-200 bg-white/80 p-3 dark:border-cyan-900 dark:bg-dark-800/70">
+            <div class="mb-2 flex items-center justify-between text-xs">
+              <span class="font-medium text-cyan-900 dark:text-cyan-100">
+                {{ t('admin.accounts.modelTrace.progress', { attempt: modelTraceProgress.attempt, max: modelTraceProgress.max_attempts }) }}
+              </span>
+              <span class="font-mono text-cyan-700 dark:text-cyan-300">
+                {{ modelTraceProgress.received }}/{{ modelTraceProgress.target }}
+              </span>
+            </div>
+            <div class="h-1.5 overflow-hidden rounded-full bg-cyan-100 dark:bg-cyan-950">
+              <div
+                class="h-full rounded-full bg-cyan-600 transition-all duration-300"
+                :style="{ width: `${Math.min(100, (modelTraceProgress.received / Math.max(1, modelTraceProgress.target)) * 100)}%` }"
+              ></div>
+            </div>
+            <p v-if="modelTraceProgress.error" class="mt-2 break-words text-[11px] text-amber-700 dark:text-amber-300">
+              {{ modelTraceProgress.error }}
+            </p>
+          </div>
+
+          <div
+            v-if="modelTraceStatus === 'error'"
+            class="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-300"
+          >
+            <Icon name="x" size="sm" class="mt-0.5 shrink-0" :stroke-width="2" />
+            <span class="break-words">{{ modelTraceError }}</span>
+          </div>
+
+          <div v-if="modelTraceResult" data-test="model-trace-result" class="space-y-3">
+            <div
+              :class="[
+                'rounded-lg border p-3',
+                modelTraceVerdictClass
+              ]"
+            >
+              <div class="flex items-start gap-3">
+                <Icon
+                  :name="modelTraceResult.matches_expected === false ? 'x' : 'check'"
+                  size="md"
+                  class="mt-0.5 shrink-0"
+                  :stroke-width="2"
+                />
+                <div>
+                  <div class="text-sm font-semibold">{{ modelTraceVerdictLabel }}</div>
+                  <p class="mt-1 text-xs opacity-80">
+                    {{ t('admin.accounts.modelTrace.resultSummary', {
+                      requested: modelTraceResult.requested_model,
+                      tested: modelTraceResult.tested_model,
+                      prediction: modelTraceResult.prediction_name
+                    }) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <dl class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.prediction') }}</dt>
+                <dd class="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.prediction_name }}</dd>
+              </div>
+              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.probability') }}</dt>
+                <dd class="mt-1 font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{{ formatModelTracePercent(modelTraceResult.probability) }}</dd>
+              </div>
+              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.family') }}</dt>
+                <dd class="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.family_prediction_name }}</dd>
+              </div>
+              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
+                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.validQueries') }}</dt>
+                <dd class="mt-1 font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.used_outputs }}/3</dd>
+              </div>
+            </dl>
+
+            <div class="rounded-lg border border-cyan-200 bg-white/80 p-3 dark:border-cyan-900 dark:bg-dark-800/70">
+              <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.modelTrace.topCandidates') }}
+              </div>
+              <div class="space-y-2">
+                <div v-for="candidate in modelTraceTopCandidates" :key="candidate.model" class="grid grid-cols-[minmax(0,1fr)_4rem] items-center gap-3">
+                  <div class="min-w-0">
+                    <div class="mb-1 flex items-center justify-between gap-2 text-xs">
+                      <span class="truncate font-medium text-gray-800 dark:text-gray-200">{{ candidate.display_name }}</span>
+                      <span class="shrink-0 text-[10px] text-gray-500 dark:text-gray-400">{{ candidate.family_name }}</span>
+                    </div>
+                    <div class="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-600">
+                      <div class="h-full rounded-full bg-cyan-600" :style="{ width: `${candidate.probability * 100}%` }"></div>
+                    </div>
+                  </div>
+                  <span class="text-right font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">{{ formatModelTracePercent(candidate.probability) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <p class="border-l-2 border-amber-400 pl-2 text-[11px] leading-4 text-gray-600 dark:text-gray-400">
+              {{ t('admin.accounts.modelTrace.disclaimer') }}
+            </p>
+          </div>
+
+          <div
+            data-test="model-trace-history"
+            class="rounded-lg border border-cyan-200 bg-white/70 p-3 dark:border-cyan-900 dark:bg-dark-800/60"
+          >
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:text-cyan-100">
+                  {{ t('admin.accounts.modelTrace.historyTitle') }}
+                </h4>
+                <p class="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.modelTrace.historyHint') }}
+                </p>
+              </div>
+              <Icon v-if="modelTraceHistoryLoading" name="refresh" size="sm" class="animate-spin text-cyan-500" :stroke-width="2" />
+            </div>
+            <p v-if="modelTraceHistoryError" class="text-xs text-red-600 dark:text-red-300">{{ modelTraceHistoryError }}</p>
+            <p v-else-if="!modelTraceHistoryLoading && modelTraceHistory.length === 0" class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.modelTrace.historyEmpty') }}
+            </p>
+            <div v-else class="space-y-1.5">
+              <button
+                v-for="item in modelTraceHistory"
+                :key="item.id"
+                type="button"
+                class="flex w-full items-center justify-between gap-3 rounded-lg border border-cyan-100 px-3 py-2 text-left transition-colors hover:bg-cyan-50 disabled:cursor-default disabled:hover:bg-transparent dark:border-cyan-950 dark:hover:bg-cyan-950/40 dark:disabled:hover:bg-transparent"
+                :disabled="item.status !== 'success' || modelTraceStatus === 'running'"
+                @click="showModelTraceHistoryResult(item)"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-xs font-medium text-gray-800 dark:text-gray-200">{{ item.requested_model }}</span>
+                  <span class="block text-[10px] text-gray-500 dark:text-gray-400">{{ formatHistoryTime(item.created_at) }}</span>
+                </span>
+                <span v-if="item.status === 'success'" class="shrink-0 text-right">
+                  <span class="block max-w-40 truncate text-xs font-semibold text-cyan-800 dark:text-cyan-200">{{ modelTraceHistoryResult(item).prediction_name }}</span>
+                  <span class="block font-mono text-[10px] text-gray-500 dark:text-gray-400">{{ formatModelTracePercent(modelTraceHistoryResult(item).probability) }}</span>
+                </span>
+                <span
+                  v-else
+                  :title="item.error_message || t('admin.accounts.modelTrace.failed')"
+                  class="min-w-0 max-w-[60%] truncate rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300"
+                >
+                  {{ item.error_message || t('admin.accounts.modelTrace.failed') }}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <SvgAnimationTestPanel
+        v-if="supportsModelTrace"
+        :active="show"
+        :account-id="account?.id ?? 0"
+        :models="modelTraceModelOptions"
+        :disabled="loadingModels || status === 'connecting' || modelTraceStatus === 'running'"
+        @running-change="svgAnimationTestRunning = $event"
+      />
+
       <div v-if="generatedImages.length > 0" class="space-y-2">
         <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
           {{ t('admin.accounts.imagePreview') }}
@@ -370,12 +590,14 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
+import SvgAnimationTestPanel from './SvgAnimationTestPanel.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
+import type { AccountDegradationCheckResult } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -389,6 +611,49 @@ interface PreviewMedia {
   url: string
   mimeType?: string
 }
+
+interface ModelTraceCandidate {
+  model: string
+  display_name: string
+  family_name: string
+  probability: number
+}
+
+interface ModelTraceResult {
+  requested_model: string
+  tested_model: string
+  expected_model_in_bank: boolean
+  matches_expected: boolean | null
+  prediction: string
+  prediction_name: string
+  probability: number
+  family_prediction_name: string
+  family_probability: number
+  used_outputs: number
+  results: ModelTraceCandidate[]
+  disclaimer: string
+}
+
+interface ModelTraceProgress {
+  attempt: number
+  max_attempts: number
+  received: number
+  target: number
+  accepted: boolean
+  parsed_numbers: number
+  minimum_numbers: number
+  error?: string
+}
+
+const emptyModelTraceProgress = (): ModelTraceProgress => ({
+  attempt: 0,
+  max_attempts: 6,
+  received: 0,
+  target: 3,
+  accepted: false,
+  parsed_numbers: 0,
+  minimum_numbers: 0
+})
 
 const props = defineProps<{
   show: boolean
@@ -409,6 +674,16 @@ const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
+const modelTraceModelId = ref('')
+const modelTraceStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
+const modelTraceProgress = ref<ModelTraceProgress>(emptyModelTraceProgress())
+const modelTraceResult = ref<ModelTraceResult | null>(null)
+const modelTraceError = ref('')
+const modelTraceHistory = ref<AccountDegradationCheckResult[]>([])
+const modelTraceHistoryLoading = ref(false)
+const modelTraceHistoryError = ref('')
+let modelTraceAbortController: AbortController | null = null
+const svgAnimationTestRunning = ref(false)
 const generatedImages = ref<PreviewMedia[]>([])
 const generatedAudios = ref<PreviewMedia[]>([])
 const generatedVideos = ref<PreviewMedia[]>([])
@@ -424,6 +699,70 @@ const imageFileInput = ref<HTMLInputElement | null>(null)
 const audioFileInput = ref<HTMLInputElement | null>(null)
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
+const supportsModelTrace = computed(() => {
+  const account = props.account
+  if (!account || !['openai', 'anthropic'].includes(account.platform)) return false
+  return ['oauth', 'setup-token', 'apikey'].includes(account.type)
+})
+const modelTraceModelOptions = computed(() => availableModels.value.filter((model) => {
+  const id = model.id.toLowerCase()
+  return !(
+    id.startsWith('gpt-image-') ||
+    id.startsWith('dall-e') ||
+    id.startsWith('sora') ||
+    id.includes('whisper') ||
+    id.includes('transcribe') ||
+    id.includes('realtime') ||
+    id.includes('audio') ||
+    id.endsWith('-tts')
+  )
+}))
+const canStartModelTrace = computed(() => {
+  if (modelTraceStatus.value === 'running' || status.value === 'connecting' || svgAnimationTestRunning.value) return false
+  if (!modelTraceModelId.value) return false
+  return modelTraceModelOptions.value.some((model) => model.id === modelTraceModelId.value)
+})
+const modelTraceTopCandidates = computed(() => modelTraceResult.value?.results.slice(0, 3) || [])
+const modelTraceVerdictLabel = computed(() => {
+  if (modelTraceResult.value?.matches_expected === true) return t('admin.accounts.modelTrace.match')
+  if (modelTraceResult.value?.matches_expected === false) return t('admin.accounts.modelTrace.mismatch')
+  return t('admin.accounts.modelTrace.unknown')
+})
+const modelTraceVerdictClass = computed(() => {
+  if (modelTraceResult.value?.matches_expected === true) {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200'
+  }
+  if (modelTraceResult.value?.matches_expected === false) {
+    return 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200'
+  }
+  return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200'
+})
+const formatModelTracePercent = (value: number) => `${(value * 100).toFixed(1)}%`
+const formatHistoryTime = (value: string) => new Date(value).toLocaleString()
+const modelTraceHistoryResult = (item: AccountDegradationCheckResult) => item.result as unknown as ModelTraceResult
+const showModelTraceHistoryResult = (item: AccountDegradationCheckResult) => {
+  if (item.status !== 'success' || modelTraceStatus.value === 'running') return
+  modelTraceResult.value = modelTraceHistoryResult(item)
+  modelTraceStatus.value = 'success'
+  modelTraceError.value = ''
+}
+const loadModelTraceHistory = async () => {
+  const account = props.account
+  if (!props.show || !account || !supportsModelTrace.value) return
+  const accountId = account.id
+  modelTraceHistoryLoading.value = true
+  modelTraceHistoryError.value = ''
+  try {
+    const items = await adminAPI.accounts.getDegradationCheckHistory(accountId, 'model_trace', 10)
+    if (props.show && props.account?.id === accountId) modelTraceHistory.value = items
+  } catch (error) {
+    if (props.show && props.account?.id === accountId) {
+      modelTraceHistoryError.value = error instanceof Error ? error.message : t('admin.accounts.modelTrace.historyFailed')
+    }
+  } finally {
+    if (props.account?.id === accountId) modelTraceHistoryLoading.value = false
+  }
+}
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
@@ -674,7 +1013,7 @@ const testModeSummary = computed(() => {
 })
 
 const canStartTest = computed(() => {
-  if (status.value === 'connecting') return false
+  if (status.value === 'connecting' || modelTraceStatus.value === 'running' || svgAnimationTestRunning.value) return false
   if (isGrokAccount.value) {
     if (
       grokTestMode.value === 'search' ||
@@ -741,13 +1080,17 @@ watch(
       testMode.value = 'default'
       grokTestMode.value = 'text'
       resetState()
-      await loadAvailableModels()
+      resetModelTraceState(true)
+      modelTraceHistory.value = []
+      modelTraceHistoryError.value = ''
+      await Promise.all([loadAvailableModels(), loadModelTraceHistory()])
       if (isGrokAccount.value) {
         pickDefaultModelForMode()
         applyDefaultPromptForMode()
       }
     } else {
       abortStream()
+      abortModelTrace()
     }
   }
 )
@@ -801,8 +1144,17 @@ const resetState = () => {
   previewImageUrl.value = ''
 }
 
+const resetModelTraceState = (clearModel = false) => {
+  if (clearModel) modelTraceModelId.value = ''
+  modelTraceStatus.value = 'idle'
+  modelTraceProgress.value = emptyModelTraceProgress()
+  modelTraceResult.value = null
+  modelTraceError.value = ''
+}
+
 const handleClose = () => {
   abortStream()
+  abortModelTrace()
   emit('close')
 }
 
@@ -810,6 +1162,102 @@ const abortStream = () => {
   if (abortController) {
     abortController.abort()
     abortController = null
+  }
+}
+
+const abortModelTrace = () => {
+  if (modelTraceAbortController) {
+    modelTraceAbortController.abort()
+    modelTraceAbortController = null
+  }
+}
+
+const handleModelTraceEvent = (event: {
+  type: string
+  success?: boolean
+  error?: string
+  data?: ModelTraceProgress | ModelTraceResult
+}) => {
+  switch (event.type) {
+    case 'model_trace_progress':
+      modelTraceProgress.value = event.data as ModelTraceProgress
+      break
+    case 'model_trace_complete':
+      modelTraceResult.value = event.data as ModelTraceResult
+      modelTraceStatus.value = event.success ? 'success' : 'error'
+      if (!event.success) modelTraceError.value = event.error || t('admin.accounts.modelTrace.failed')
+      void loadModelTraceHistory()
+      break
+    case 'error':
+      modelTraceStatus.value = 'error'
+      modelTraceError.value = event.error || t('admin.accounts.modelTrace.failed')
+      void loadModelTraceHistory()
+      break
+  }
+}
+
+const startModelTrace = async () => {
+  if (!props.account || !canStartModelTrace.value) return
+
+  modelTraceStatus.value = 'running'
+  modelTraceProgress.value = emptyModelTraceProgress()
+  modelTraceResult.value = null
+  modelTraceError.value = ''
+  abortModelTrace()
+  const controller = new AbortController()
+  modelTraceAbortController = controller
+
+  try {
+    const response = await fetch(buildApiUrl(`/admin/accounts/${props.account.id}/model-trace`), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+        'Content-Type': 'application/json',
+        [ADMIN_UI_REQUEST_HEADER]: '1'
+      },
+      body: JSON.stringify({ model_id: modelTraceModelId.value }),
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { message?: string } | null
+      throw new Error(payload?.message || `HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error(t('admin.accounts.modelTrace.noResponseBody'))
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (!payload) continue
+        try {
+          handleModelTraceEvent(JSON.parse(payload))
+        } catch (error) {
+          console.error('Failed to parse ModelTrace SSE event:', error)
+        }
+      }
+    }
+    if (modelTraceStatus.value === 'running') {
+      throw new Error(t('admin.accounts.modelTrace.streamEnded'))
+    }
+  } catch (error: unknown) {
+    if (modelTraceAbortController !== controller) return
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      modelTraceStatus.value = 'idle'
+      return
+    }
+    modelTraceStatus.value = 'error'
+    modelTraceError.value = error instanceof Error ? error.message : t('admin.accounts.modelTrace.failed')
+  } finally {
+    if (modelTraceAbortController === controller) modelTraceAbortController = null
   }
 }
 

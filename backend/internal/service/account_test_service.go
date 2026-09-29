@@ -139,6 +139,7 @@ func normalizeGrokAccountTestMode(mode string) string {
 // AccountTestService handles account testing operations
 type AccountTestService struct {
 	accountRepo               AccountRepository
+	degradationCheckRepo      AccountDegradationCheckRepository
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
 	grokTokenProvider         *GrokTokenProvider
@@ -157,6 +158,12 @@ type AccountTestService struct {
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+}
+
+func (s *AccountTestService) SetDegradationCheckRepository(repo AccountDegradationCheckRepository) {
+	if s != nil {
+		s.degradationCheckRepo = repo
+	}
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -312,11 +319,20 @@ func generateSessionString() (string, error) {
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
-// createTestPayload creates a Claude Code style test request payload
-func createTestPayload(modelID string) (map[string]any, error) {
+// createTestPayload creates a Claude Code style test request payload. A
+// non-empty optional prompt is used by ModelTrace and receives a larger output
+// budget; ordinary connectivity tests retain the short "hi" probe.
+func createTestPayload(modelID string, prompts ...string) (map[string]any, error) {
 	sessionID, err := generateSessionString()
 	if err != nil {
 		return nil, err
+	}
+
+	testPrompt := "hi"
+	maxTokens := 1024
+	if len(prompts) > 0 && strings.TrimSpace(prompts[0]) != "" {
+		testPrompt = strings.TrimSpace(prompts[0])
+		maxTokens = 4096
 	}
 
 	return map[string]any{
@@ -327,7 +343,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": testPrompt,
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -347,7 +363,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 		"metadata": map[string]string{
 			"user_id": sessionID,
 		},
-		"max_tokens":  1024,
+		"max_tokens":  maxTokens,
 		"temperature": 1,
 		"stream":      true,
 	}, nil
@@ -359,15 +375,14 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
-	ctx := c.Request.Context()
-	testOpts := firstAccountTestOptions(opts)
-
-	// Get account
-	account, err := s.accountRepo.GetByID(ctx, accountID)
+	account, err := s.accountRepo.GetByID(c.Request.Context(), accountID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	return s.testAccountConnectionForAccount(c, account, modelID, prompt, mode, firstAccountTestOptions(opts))
+}
 
+func (s *AccountTestService) testAccountConnectionForAccount(c *gin.Context, account *Account, modelID string, prompt string, mode string, testOpts AccountTestOptions) error {
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
 	// to an upstream provider.
@@ -416,7 +431,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 
-	return s.testClaudeAccountConnection(c, account, modelID)
+	return s.testClaudeAccountConnection(c, account, modelID, prompt)
 }
 
 // testOpenCodeGoAccountConnection probes the native endpoint for the selected
@@ -484,7 +499,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
-func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	// Determine the model to use
@@ -543,7 +558,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID)
+	payload, err := createTestPayload(testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -594,7 +609,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
+		errMsg := compactAccountTestError(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 
 		// 403 表示账号被上游封禁，标记为 error 状态
 		if resp.StatusCode == http.StatusForbidden {
@@ -666,7 +681,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
+		errMsg := compactAccountTestError(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 		if resp.StatusCode == http.StatusForbidden {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -873,7 +888,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -963,10 +978,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
+			errMsg := compactAccountTestError(c, fmt.Sprintf("Authentication failed (401): %s", string(body)))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
-		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		return s.sendErrorAndEnd(c, compactAccountTestError(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))))
 	}
 
 	// Process SSE stream
@@ -2315,10 +2330,10 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
+			errMsg := compactAccountTestError(c, fmt.Sprintf("Authentication failed (401): %s", string(body)))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
-		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+		return s.sendErrorAndEnd(c, compactAccountTestError(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))))
 	}
 
 	if !compactionFound {
@@ -2445,7 +2460,7 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		if strings.HasPrefix(modelID, "gemini-") {
 			return s.testGeminiAccountConnection(c, account, modelID, prompt)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID)
+		return s.testClaudeAccountConnection(c, account, modelID, prompt)
 	}
 	return s.testAntigravityAccountConnection(c, account, modelID)
 }
@@ -2754,8 +2769,14 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 	}
 }
 
-// createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+// createOpenAITestPayload creates a test payload for OpenAI Responses API.
+// ModelTrace supplies an explicit prompt; connectivity and usage probes keep
+// the existing short default by omitting it.
+func createOpenAITestPayload(modelID string, isOAuth bool, prompts ...string) map[string]any {
+	testPrompt := "hi"
+	if len(prompts) > 0 && strings.TrimSpace(prompts[0]) != "" {
+		testPrompt = strings.TrimSpace(prompts[0])
+	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2764,7 +2785,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": testPrompt,
 					},
 				},
 			},
@@ -2804,13 +2825,17 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	seenMessageStop := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				if seenMessageStop {
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+					return nil
+				}
+				return s.sendErrorAndEnd(c, "Claude stream ended before message_stop")
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -2822,8 +2847,11 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			if seenMessageStop {
+				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+				return nil
+			}
+			return s.sendErrorAndEnd(c, "Claude stream ended before message_stop")
 		}
 
 		var data map[string]any
@@ -2840,7 +2868,14 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
+		case "message_delta":
+			if delta, ok := data["delta"].(map[string]any); ok {
+				if reason, ok := delta["stop_reason"].(string); ok {
+					recordAccountTestStopReason(c, reason)
+				}
+			}
 		case "message_stop":
+			seenMessageStop = true
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "error":
@@ -2926,6 +2961,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
 				seenFinish = true
+				recordAccountTestStopReason(c, finishReason)
 			}
 		}
 	}
@@ -2979,6 +3015,17 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		case "response.completed", "response.done":
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
+		case "response.incomplete":
+			reason := "incomplete"
+			if responseData, ok := data["response"].(map[string]any); ok {
+				if details, ok := responseData["incomplete_details"].(map[string]any); ok {
+					if detail, ok := details["reason"].(string); ok && detail != "" {
+						reason = detail
+					}
+				}
+			}
+			recordAccountTestStopReason(c, reason)
+			return s.sendErrorAndEnd(c, fmt.Sprintf("OpenAI response incomplete: %s", reason))
 		case "response.failed":
 			errorMsg := "OpenAI response failed"
 			if responseData, ok := data["response"].(map[string]any); ok {
@@ -3265,8 +3312,10 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 	c.Writer.Flush()
 }
 
-// sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
+	if isDegradationCheckProbe(c) {
+		errorMsg = compactDegradationCheckError(errorMsg)
+	}
 	log.Printf("Account test error: %s", errorMsg)
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
