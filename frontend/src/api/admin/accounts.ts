@@ -634,6 +634,84 @@ export async function getDegradationCheckHistory(
   return data
 }
 
+export type DegradationBatchStatus = 'pending' | 'running' | 'canceling' | 'completed' | 'canceled'
+export type DegradationBatchItemStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'canceled' | 'interrupted'
+export interface DegradationBatchCounts {
+  total: number
+  pending: number
+  running: number
+  succeeded: number
+  failed: number
+  skipped: number
+  canceled: number
+  interrupted: number
+}
+export interface DegradationBatch {
+  id: number
+  check_type: AccountDegradationCheckType
+  status: DegradationBatchStatus
+  created_by: number
+  canceled_by: number | null
+  cancel_requested_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+  counts: DegradationBatchCounts
+}
+export interface DegradationBatchItem {
+  id: number
+  position: number
+  account_id: number
+  account_name: string
+  platform: string
+  account_type: string
+  requested_model: string
+  tested_model: string
+  status: DegradationBatchItemStatus
+  reason_code: string
+  error_message: string
+  progress: { attempt?: number; max_attempts?: number; received?: number; target?: number }
+  history_id: number | null
+  started_at: string | null
+  finished_at: string | null
+  updated_at: string
+  model_trace_summary: { matches_expected: boolean | null; prediction_name: string; probability: number } | null
+}
+export interface DegradationBatchItemDetail extends DegradationBatchItem {
+  result: Record<string, unknown> | null
+  output_text: string
+}
+export interface DegradationBatchCreateRequest {
+  check_type: AccountDegradationCheckType
+  items: { account_id: number; model_id: string | null }[]
+}
+const degradationBatchPath = '/admin/accounts/degradation-check-batches'
+export async function createDegradationCheckBatch(payload: DegradationBatchCreateRequest, key: string): Promise<DegradationBatch> {
+  const { data } = await apiClient.post<DegradationBatch>(degradationBatchPath, payload, { headers: { 'Idempotency-Key': key } })
+  return data
+}
+export async function listDegradationCheckBatches(params: { page?: number; page_size?: number; check_type?: AccountDegradationCheckType; status?: DegradationBatchStatus }, signal?: AbortSignal): Promise<PaginatedResponse<DegradationBatch>> {
+  const { data } = await apiClient.get<PaginatedResponse<DegradationBatch>>(degradationBatchPath, { params, signal })
+  return data
+}
+export async function getDegradationCheckBatch(id: number, signal?: AbortSignal): Promise<DegradationBatch> {
+  const { data } = await apiClient.get<DegradationBatch>(`${degradationBatchPath}/${id}`, { signal })
+  return data
+}
+export async function listDegradationCheckBatchItems(id: number, params: { page?: number; page_size?: number }, signal?: AbortSignal): Promise<PaginatedResponse<DegradationBatchItem>> {
+  const { data } = await apiClient.get<PaginatedResponse<DegradationBatchItem>>(`${degradationBatchPath}/${id}/items`, { params, signal })
+  return data
+}
+export async function getDegradationCheckBatchItem(id: number, itemId: number, signal?: AbortSignal): Promise<DegradationBatchItemDetail> {
+  const { data } = await apiClient.get<DegradationBatchItemDetail>(`${degradationBatchPath}/${id}/items/${itemId}`, { signal })
+  return data
+}
+export async function cancelDegradationCheckBatch(id: number): Promise<DegradationBatch> {
+  const { data } = await apiClient.post<DegradationBatch>(`${degradationBatchPath}/${id}/cancel`, {})
+  return data
+}
+
 export interface SyncUpstreamModelsResult {
   models: string[]
   metadata?: Record<string, UpstreamModelMetadata>
@@ -1159,6 +1237,12 @@ export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsag
 }
 
 export const accountsAPI = {
+  createDegradationCheckBatch,
+  listDegradationCheckBatches,
+  getDegradationCheckBatch,
+  listDegradationCheckBatchItems,
+  getDegradationCheckBatchItem,
+  cancelDegradationCheckBatch,
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,

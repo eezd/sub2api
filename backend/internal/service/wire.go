@@ -400,6 +400,13 @@ func ProvideUsageCleanupService(repo UsageCleanupRepository, timingWheel *Timing
 	return svc
 }
 
+// ProvideAccountDegradationCheckBatchService creates and starts the persistent batch worker.
+func ProvideAccountDegradationCheckBatchService(repo AccountDegradationCheckBatchRepository, accountRepo AccountRepository, testService *AccountTestService, timingWheel *TimingWheelService) *AccountDegradationCheckBatchService {
+	svc := NewAccountDegradationCheckBatchService(repo, accountRepo, testService, timingWheel)
+	svc.Start()
+	return svc
+}
+
 // ProvideAccountExpiryService creates and starts AccountExpiryService.
 func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpiryService {
 	svc := NewAccountExpiryService(accountRepo, time.Minute)
@@ -949,6 +956,7 @@ var ProviderSet = wire.NewSet(
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,
+	ProvideAccountDegradationCheckBatchService,
 	ProvideDeferredService,
 	NewAntigravityQuotaFetcher,
 	NewGrokQuotaFetcher,

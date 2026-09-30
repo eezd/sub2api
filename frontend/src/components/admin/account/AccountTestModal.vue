@@ -259,7 +259,7 @@
               <Select
                 v-model="modelTraceModelId"
                 data-test="model-trace-model"
-                :options="modelTraceModelOptions"
+                :options="modelTraceSelectOptions"
                 :disabled="loadingModels || modelTraceStatus === 'running' || status === 'connecting'"
                 value-key="id"
                 label-key="display_name"
@@ -315,76 +315,7 @@
             <span class="break-words">{{ modelTraceError }}</span>
           </div>
 
-          <div v-if="modelTraceResult" data-test="model-trace-result" class="space-y-3">
-            <div
-              :class="[
-                'rounded-lg border p-3',
-                modelTraceVerdictClass
-              ]"
-            >
-              <div class="flex items-start gap-3">
-                <Icon
-                  :name="modelTraceResult.matches_expected === false ? 'x' : 'check'"
-                  size="md"
-                  class="mt-0.5 shrink-0"
-                  :stroke-width="2"
-                />
-                <div>
-                  <div class="text-sm font-semibold">{{ modelTraceVerdictLabel }}</div>
-                  <p class="mt-1 text-xs opacity-80">
-                    {{ t('admin.accounts.modelTrace.resultSummary', {
-                      requested: modelTraceResult.requested_model,
-                      tested: modelTraceResult.tested_model,
-                      prediction: modelTraceResult.prediction_name
-                    }) }}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <dl class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
-                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.prediction') }}</dt>
-                <dd class="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.prediction_name }}</dd>
-              </div>
-              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
-                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.probability') }}</dt>
-                <dd class="mt-1 font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{{ formatModelTracePercent(modelTraceResult.probability) }}</dd>
-              </div>
-              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
-                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.family') }}</dt>
-                <dd class="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.family_prediction_name }}</dd>
-              </div>
-              <div class="rounded-lg border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900 dark:bg-dark-800/70">
-                <dt class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ t('admin.accounts.modelTrace.validQueries') }}</dt>
-                <dd class="mt-1 font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{{ modelTraceResult.used_outputs }}/3</dd>
-              </div>
-            </dl>
-
-            <div class="rounded-lg border border-cyan-200 bg-white/80 p-3 dark:border-cyan-900 dark:bg-dark-800/70">
-              <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.modelTrace.topCandidates') }}
-              </div>
-              <div class="space-y-2">
-                <div v-for="candidate in modelTraceTopCandidates" :key="candidate.model" class="grid grid-cols-[minmax(0,1fr)_4rem] items-center gap-3">
-                  <div class="min-w-0">
-                    <div class="mb-1 flex items-center justify-between gap-2 text-xs">
-                      <span class="truncate font-medium text-gray-800 dark:text-gray-200">{{ candidate.display_name }}</span>
-                      <span class="shrink-0 text-[10px] text-gray-500 dark:text-gray-400">{{ candidate.family_name }}</span>
-                    </div>
-                    <div class="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-600">
-                      <div class="h-full rounded-full bg-cyan-600" :style="{ width: `${candidate.probability * 100}%` }"></div>
-                    </div>
-                  </div>
-                  <span class="text-right font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">{{ formatModelTracePercent(candidate.probability) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <p class="border-l-2 border-amber-400 pl-2 text-[11px] leading-4 text-gray-600 dark:text-gray-400">
-              {{ t('admin.accounts.modelTrace.disclaimer') }}
-            </p>
-          </div>
+          <ModelTraceResultPanel v-if="modelTraceResult" :result="modelTraceResult" />
 
           <div
             data-test="model-trace-history"
@@ -591,6 +522,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import SvgAnimationTestPanel from './SvgAnimationTestPanel.vue'
+import ModelTraceResultPanel from './ModelTraceResultPanel.vue'
+import { filterDegradationCheckModels, supportsDegradationCheckAccount, formatModelTracePercent, type ModelTraceResult, type ModelTraceProgress } from '@/utils/degradationChecks'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
@@ -612,38 +545,6 @@ interface PreviewMedia {
   mimeType?: string
 }
 
-interface ModelTraceCandidate {
-  model: string
-  display_name: string
-  family_name: string
-  probability: number
-}
-
-interface ModelTraceResult {
-  requested_model: string
-  tested_model: string
-  expected_model_in_bank: boolean
-  matches_expected: boolean | null
-  prediction: string
-  prediction_name: string
-  probability: number
-  family_prediction_name: string
-  family_probability: number
-  used_outputs: number
-  results: ModelTraceCandidate[]
-  disclaimer: string
-}
-
-interface ModelTraceProgress {
-  attempt: number
-  max_attempts: number
-  received: number
-  target: number
-  accepted: boolean
-  parsed_numbers: number
-  minimum_numbers: number
-  error?: string
-}
 
 const emptyModelTraceProgress = (): ModelTraceProgress => ({
   attempt: 0,
@@ -699,45 +600,17 @@ const imageFileInput = ref<HTMLInputElement | null>(null)
 const audioFileInput = ref<HTMLInputElement | null>(null)
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
-const supportsModelTrace = computed(() => {
-  const account = props.account
-  if (!account || !['openai', 'anthropic'].includes(account.platform)) return false
-  return ['oauth', 'setup-token', 'apikey'].includes(account.type)
-})
-const modelTraceModelOptions = computed(() => availableModels.value.filter((model) => {
-  const id = model.id.toLowerCase()
-  return !(
-    id.startsWith('gpt-image-') ||
-    id.startsWith('dall-e') ||
-    id.startsWith('sora') ||
-    id.includes('whisper') ||
-    id.includes('transcribe') ||
-    id.includes('realtime') ||
-    id.includes('audio') ||
-    id.endsWith('-tts')
-  )
-}))
+const supportsModelTrace = computed(() => supportsDegradationCheckAccount(props.account))
+const modelTraceModelOptions = computed(() => filterDegradationCheckModels(availableModels.value))
+const modelTraceSelectOptions = computed(() => modelTraceModelOptions.value.map((model) => ({
+  id: model.id,
+  display_name: model.display_name
+})))
 const canStartModelTrace = computed(() => {
   if (modelTraceStatus.value === 'running' || status.value === 'connecting' || svgAnimationTestRunning.value) return false
   if (!modelTraceModelId.value) return false
   return modelTraceModelOptions.value.some((model) => model.id === modelTraceModelId.value)
 })
-const modelTraceTopCandidates = computed(() => modelTraceResult.value?.results.slice(0, 3) || [])
-const modelTraceVerdictLabel = computed(() => {
-  if (modelTraceResult.value?.matches_expected === true) return t('admin.accounts.modelTrace.match')
-  if (modelTraceResult.value?.matches_expected === false) return t('admin.accounts.modelTrace.mismatch')
-  return t('admin.accounts.modelTrace.unknown')
-})
-const modelTraceVerdictClass = computed(() => {
-  if (modelTraceResult.value?.matches_expected === true) {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200'
-  }
-  if (modelTraceResult.value?.matches_expected === false) {
-    return 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200'
-  }
-  return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200'
-})
-const formatModelTracePercent = (value: number) => `${(value * 100).toFixed(1)}%`
 const formatHistoryTime = (value: string) => new Date(value).toLocaleString()
 const modelTraceHistoryResult = (item: AccountDegradationCheckResult) => item.result as unknown as ModelTraceResult
 const showModelTraceHistoryResult = (item: AccountDegradationCheckResult) => {

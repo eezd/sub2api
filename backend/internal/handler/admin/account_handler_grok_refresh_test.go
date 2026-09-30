@@ -56,22 +56,7 @@ func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 		RefreshToken: "new-refresh",
 		ExpiresAt:    1_800_000_000,
 	}}
-	handler := NewAccountHandler(
-		adminSvc,
-		nil,
-		nil,
-		nil,
-		nil,
-		grokOAuth,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-	)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, grokOAuth, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	account := &service.Account{
 		ID:       4227,
 		Platform: service.PlatformGrok,

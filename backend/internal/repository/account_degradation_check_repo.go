@@ -17,11 +17,19 @@ func NewAccountDegradationCheckRepository(db *sql.DB) service.AccountDegradation
 }
 
 func (r *accountDegradationCheckRepository) Create(ctx context.Context, result *service.AccountDegradationCheckResult) (*service.AccountDegradationCheckResult, error) {
+	return insertAccountDegradationCheckResult(ctx, r.db, result)
+}
+
+type degradationHistoryInserter interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func insertAccountDegradationCheckResult(ctx context.Context, db degradationHistoryInserter, result *service.AccountDegradationCheckResult) (*service.AccountDegradationCheckResult, error) {
 	resultJSON := result.Result
 	if len(resultJSON) == 0 {
 		resultJSON = json.RawMessage(`{}`)
 	}
-	row := r.db.QueryRowContext(ctx, `
+	row := db.QueryRowContext(ctx, `
 		INSERT INTO account_degradation_check_results (
 			account_id, check_type, requested_model, tested_model, status,
 			result, output_text, error_message, created_at

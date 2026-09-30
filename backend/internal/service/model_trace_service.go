@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -52,70 +53,143 @@ func (s *AccountTestService) DetectModelTrace(c *gin.Context, accountID int64, r
 		return fmt.Errorf("account test service is unavailable")
 	}
 
-	account, err := s.accountRepo.GetByID(c.Request.Context(), accountID)
-	if err != nil || account == nil {
+	ctx := c.Request.Context()
+	started := false
+	record, runErr := s.runModelTraceCheck(ctx, accountID, requestedModel, func(event TestEvent) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !started {
+			c.Writer.Header().Set("Content-Type", "text/event-stream")
+			c.Writer.Header().Set("Cache-Control", "no-cache")
+			c.Writer.Header().Set("Connection", "keep-alive")
+			c.Writer.Header().Set("X-Accel-Buffering", "no")
+			c.Writer.Flush()
+			started = true
+		}
+		return s.emitDegradationEvent(c, event)
+	})
+	if record == nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	var result ModelTraceResult
+	if runErr == nil {
+		if err := json.Unmarshal(record.Result, &result); err != nil {
+			runErr = fmt.Errorf("decode ModelTrace result: %w", err)
+			record.Status = AccountDegradationCheckStatusError
+			record.ErrorMessage = compactDegradationCheckError(runErr.Error())
+		}
+	}
+	if runErr == nil && ctx.Err() != nil {
+		runErr = ctx.Err()
+		record.Status = AccountDegradationCheckStatusError
+		record.ErrorMessage = fmt.Sprintf("%s（已尝试 %d/%d 次）", degradationCheckCancelledMessage, result.APITest.Attempted, modelTraceMaxAttempts)
+	}
+	if _, err := s.persistDegradationCheck(ctx, record); err != nil {
+		if runErr == nil {
+			log.Printf("persist ModelTrace degradation check: %v", err)
+			return s.sendErrorAndEnd(c, "保存 ModelTrace 检测历史失败")
+		}
+		log.Printf("persist account degradation check failure: %v", err)
+	}
+	if runErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return s.sendErrorAndEnd(c, record.ErrorMessage)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.sendEvent(c, TestEvent{Type: "model_trace_complete", Success: true, Data: &result})
+	return nil
+}
+
+// runModelTraceCheck returns an unpersisted history record. Attribution mismatch
+// and models absent from the reference bank remain successful executions.
+func (s *AccountTestService) runModelTraceCheck(ctx context.Context, accountID int64, requestedModel string, emit func(TestEvent) error) (*AccountDegradationCheckResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, errors.New("account test service is unavailable")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	record := &AccountDegradationCheckResult{
+		AccountID:      accountID,
+		CheckType:      AccountDegradationCheckModelTrace,
+		RequestedModel: requestedModel,
+		Status:         AccountDegradationCheckStatusError,
+		Result:         json.RawMessage(`{}`),
+	}
+	attempted := 0
+	fail := func(message string, cause error) (*AccountDegradationCheckResult, error) {
+		record.ErrorMessage = compactDegradationCheckError(message)
+		if cause == nil {
+			cause = errors.New(record.ErrorMessage)
+		}
+		return record, cause
+	}
+	cancelled := func() (*AccountDegradationCheckResult, error) {
+		return fail(fmt.Sprintf("%s（已尝试 %d/%d 次）", degradationCheckCancelledMessage, attempted, modelTraceMaxAttempts), ctx.Err())
+	}
+	if ctx.Err() != nil {
+		return cancelled()
+	}
 	if !supportsModelTraceAccount(account) {
-		message := "ModelTrace 仅支持 OpenAI 和 Anthropic 的 OAuth、Setup Token 或 API Key 文本模型账号"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail("ModelTrace 仅支持 OpenAI 和 Anthropic 的 OAuth、Setup Token 或 API Key 文本模型账号", nil)
 	}
 	if account.IsOpenAI() && isOpenAIImageModel(account.GetMappedModel(requestedModel)) {
-		message := "ModelTrace 不支持图像模型"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail("ModelTrace 不支持图像模型", nil)
 	}
-
 	bank, err := loadModelTraceBank()
 	if err != nil {
-		message := "ModelTrace 指纹库不可用"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail("ModelTrace 指纹库不可用", nil)
 	}
 	challenges, err := generateModelTraceChallenges(modelTraceMaxAttempts)
 	if err != nil {
-		message := "无法生成 ModelTrace 检测任务"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail("无法生成 ModelTrace 检测任务", nil)
 	}
-	testedModel, err := s.resolveDegradationTestedModel(c, account, requestedModel)
+	testedModel, err := s.resolveDegradationTestedModel(ctx, account, requestedModel)
+	if ctx.Err() != nil {
+		return cancelled()
+	}
 	if err != nil {
-		message := err.Error()
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail(err.Error(), err)
 	}
-
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.Flush()
-	s.sendEvent(c, TestEvent{
-		Type:  "model_trace_start",
-		Model: testedModel,
-		Data: map[string]int{
-			"target":       modelTraceTargetOutputs,
-			"max_attempts": modelTraceMaxAttempts,
-		},
-	})
+	record.TestedModel = testedModel
+	if emit != nil {
+		if err := emit(TestEvent{
+			Type:  "model_trace_start",
+			Model: testedModel,
+			Data: map[string]int{
+				"target":       modelTraceTargetOutputs,
+				"max_attempts": modelTraceMaxAttempts,
+			},
+		}); err != nil {
+			if ctx.Err() != nil {
+				return cancelled()
+			}
+			return fail(err.Error(), err)
+		}
+	}
 
 	accepted := make([]modelTraceOutput, 0, modelTraceTargetOutputs)
 	errorsSeen := make([]string, 0, modelTraceMaxAttempts)
-	attempted := 0
-	recordCancelled := func() error {
-		message := fmt.Sprintf("%s（已尝试 %d/%d 次）", degradationCheckCancelledMessage, attempted, modelTraceMaxAttempts)
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, testedModel, "", message)
-		return c.Request.Context().Err()
-	}
 	for _, challenge := range challenges {
-		if c.Request.Context().Err() != nil {
-			return recordCancelled()
+		if ctx.Err() != nil {
+			return cancelled()
 		}
 		attempted++
-		text, probeErr := s.runDegradationCheckProbe(c, account, requestedModel, challenge.Prompt)
-		if c.Request.Context().Err() != nil {
-			return recordCancelled()
+		text, probeErr := s.runDegradationCheckProbe(ctx, account, requestedModel, challenge.Prompt)
+		if ctx.Err() != nil {
+			return cancelled()
 		}
 		numbers := parseModelTraceNumbers(text)
 		minimum := max(80, int(math.Ceil(float64(challenge.ExpectedCount)*0.55)))
@@ -129,43 +203,46 @@ func (s *AccountTestService) DetectModelTrace(c *gin.Context, accountID int64, r
 			probeErr = compactDegradationCheckError(probeErr)
 			errorsSeen = append(errorsSeen, probeErr)
 		}
-
-		s.sendEvent(c, TestEvent{
-			Type: "model_trace_progress",
-			Data: modelTraceProgress{
-				Attempt:        attempted,
-				MaxAttempts:    modelTraceMaxAttempts,
-				Received:       len(accepted),
-				Target:         modelTraceTargetOutputs,
-				Accepted:       acceptedProbe,
-				ParsedNumbers:  len(numbers),
-				MinimumNumbers: minimum,
-				Error:          probeErr,
-			},
-		})
+		if emit != nil {
+			if err := emit(TestEvent{
+				Type: "model_trace_progress",
+				Data: modelTraceProgress{
+					Attempt:        attempted,
+					MaxAttempts:    modelTraceMaxAttempts,
+					Received:       len(accepted),
+					Target:         modelTraceTargetOutputs,
+					Accepted:       acceptedProbe,
+					ParsedNumbers:  len(numbers),
+					MinimumNumbers: minimum,
+					Error:          probeErr,
+				},
+			}); err != nil {
+				if ctx.Err() != nil {
+					return cancelled()
+				}
+				return fail(err.Error(), err)
+			}
+		}
 		if len(accepted) == modelTraceTargetOutputs {
 			break
 		}
 	}
-
+	if ctx.Err() != nil {
+		return cancelled()
+	}
 	if len(accepted) < modelTraceTargetOutputs {
 		message := "ModelTrace 未收到足够的有效数字序列"
 		if len(errorsSeen) > 0 {
 			message += "：" + errorsSeen[len(errorsSeen)-1]
 		}
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, testedModel, "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail(message, nil)
 	}
-
-	if c.Request.Context().Err() != nil {
-		return recordCancelled()
-	}
-
 	result, err := analyzeModelTraceOutputs(accepted, bank)
+	if ctx.Err() != nil {
+		return cancelled()
+	}
 	if err != nil {
-		message := err.Error()
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckModelTrace, requestedModel, testedModel, "", message)
-		return s.sendErrorAndEnd(c, message)
+		return fail(err.Error(), err)
 	}
 	result.RequestedModel = requestedModel
 	result.TestedModel = testedModel
@@ -181,15 +258,16 @@ func (s *AccountTestService) DetectModelTrace(c *gin.Context, accountID int64, r
 		Received:    len(accepted),
 		Errors:      errorsSeen,
 	}
-	if c.Request.Context().Err() != nil {
-		return recordCancelled()
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fail(fmt.Sprintf("encode ModelTrace result: %v", err), err)
 	}
-	if _, err := s.persistModelTraceResult(c.Request.Context(), accountID, result); err != nil {
-		log.Printf("persist ModelTrace degradation check: %v", err)
-		return s.sendErrorAndEnd(c, "保存 ModelTrace 检测历史失败")
+	if ctx.Err() != nil {
+		return cancelled()
 	}
-	s.sendEvent(c, TestEvent{Type: "model_trace_complete", Success: true, Data: result})
-	return nil
+	record.Status = AccountDegradationCheckStatusSuccess
+	record.Result = resultJSON
+	return record, nil
 }
 
 func supportsModelTraceAccount(account *Account) bool {
@@ -207,12 +285,12 @@ func supportsModelTraceAccount(account *Account) bool {
 	}
 }
 
-func (s *AccountTestService) resolveDegradationTestedModel(c *gin.Context, account *Account, requestedModel string) (string, error) {
+func (s *AccountTestService) resolveDegradationTestedModel(ctx context.Context, account *Account, requestedModel string) (string, error) {
 	if account.IsOpenAI() {
 		testedModel := account.GetMappedModel(requestedModel)
 		credentialAccount := account
 		if account.IsCredentialShadow() {
-			resolved, err := resolveCredentialAccount(c.Request.Context(), s.accountRepo, account)
+			resolved, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 			if err != nil {
 				return "", err
 			}
@@ -232,13 +310,11 @@ func (s *AccountTestService) resolveDegradationTestedModel(c *gin.Context, accou
 // runDegradationCheckProbe reuses the connectivity-test transport and returns
 // the streamed text plus an error for failed, truncated, refused, or filtered
 // answers.
-func (s *AccountTestService) runDegradationCheckProbe(parent *gin.Context, account *Account, modelID, prompt string) (string, string) {
+func (s *AccountTestService) runDegradationCheckProbe(ctx context.Context, account *Account, modelID, prompt string) (string, string) {
 	recorder := httptest.NewRecorder()
 	probeContext, _ := gin.CreateTestContext(recorder)
 	probeContext.Set(degradationCheckProbeContextKey, true)
-	request := parent.Request.Clone(parent.Request.Context())
-	request.Method = http.MethodPost
-	probeContext.Request = request
+	probeContext.Request = (&http.Request{Method: http.MethodPost}).WithContext(ctx)
 
 	testErr := s.testAccountConnectionForAccount(probeContext, account, modelID, prompt, AccountTestModeDefault, AccountTestOptions{})
 	text, eventErr := parseAccountTestSSEOutput(recorder.Body.String())

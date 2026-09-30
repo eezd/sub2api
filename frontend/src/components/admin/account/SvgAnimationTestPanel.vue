@@ -96,29 +96,11 @@
         <span class="break-words">{{ errorMessage }}</span>
       </div>
 
-      <div
-        v-if="previewDocument"
-        data-test="svg-animation-result"
-        class="overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-900"
-      >
-        <div class="flex items-center justify-between border-b border-violet-100 px-3 py-2 dark:border-violet-900 dark:bg-dark-800">
-          <div class="flex items-center gap-2 text-xs font-semibold text-violet-900 dark:text-violet-100">
-            <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-            {{ previewCreatedAt ? t('admin.accounts.svgAnimationTest.historyPreview', { time: formatHistoryTime(previewCreatedAt) }) : t('admin.accounts.svgAnimationTest.preview') }}
-          </div>
-          <span class="text-[10px] text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.svgAnimationTest.sandboxed') }}
-          </span>
-        </div>
-        <iframe
-          data-test="svg-animation-frame"
-          :title="t('admin.accounts.svgAnimationTest.previewTitle')"
-          :srcdoc="previewDocument"
-          sandbox=""
-          referrerpolicy="no-referrer"
-          class="aspect-[16/10] min-h-[320px] w-full bg-white"
-        ></iframe>
-      </div>
+      <SvgAnimationResultPreview
+        v-if="previewOutputText"
+        :output-text="previewOutputText"
+        :created-at="previewCreatedAt"
+      />
 
       <div
         data-test="svg-animation-history"
@@ -182,9 +164,10 @@ import type { AccountDegradationCheckResult } from '@/api/admin/accounts'
 import Select from '@/components/common/Select.vue'
 import { Icon } from '@/components/icons'
 import type { ClaudeModel } from '@/types'
+import SvgAnimationResultPreview from './SvgAnimationResultPreview.vue'
+import { buildPreviewDocument } from '@/utils/degradationChecks'
 
 const SVG_ANIMATION_PROMPT = "Create an HTML with content that's an SVG drawing of a 2D animation of a pelican riding a bicycle."
-const PREVIEW_CSP = "default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; style-src 'unsafe-inline';"
 
 const props = defineProps<{
   active: boolean
@@ -201,7 +184,7 @@ const { t } = useI18n()
 const selectedModelId = ref('')
 const status = ref<'idle' | 'running' | 'success' | 'error'>('idle')
 const responseText = ref('')
-const previewDocument = ref('')
+const previewOutputText = ref('')
 const errorMessage = ref('')
 const previewCreatedAt = ref('')
 const history = ref<AccountDegradationCheckResult[]>([])
@@ -245,40 +228,11 @@ const showHistoryResult = (item: AccountDegradationCheckResult) => {
     fail(t('admin.accounts.svgAnimationTest.noSvg'))
     return
   }
-  previewDocument.value = document
+  previewOutputText.value = item.output_text
   previewCreatedAt.value = item.created_at
   status.value = 'success'
 }
 
-const stripUnsafeMarkup = (markup: string) => markup
-  .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
-  .replace(/<script\b[^>]*\/\s*>/gi, '')
-  .replace(/<base\b[^>]*>/gi, '')
-  .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh\b)[^>]*>/gi, '')
-  .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?content-security-policy\b)[^>]*>/gi, '')
-
-// The policy must be the first element the parser sees: it then lands in the
-// implicit <head> before any model-controlled markup can request a resource.
-// Model-supplied doctype/html/head tags after it become ignorable parse errors.
-const addPreviewPolicy = (markup: string) =>
-  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">${markup}`
-
-const buildPreviewDocument = (raw: string) => {
-  const fencedBlocks = [...raw.matchAll(/```(?:html|svg|xml)?\s*([\s\S]*?)```/gi)].map((match) => match[1])
-  const candidates = [...fencedBlocks, raw]
-
-  for (const candidate of candidates) {
-    const starts = [candidate.search(/<!doctype\s+html/i), candidate.search(/<html(?:\s|>)/i), candidate.search(/<svg(?:\s|>)/i)]
-      .filter((index) => index >= 0)
-    if (starts.length === 0) continue
-
-    const markup = candidate.slice(Math.min(...starts)).trim()
-    if (!/<svg(?:\s|>)/i.test(markup)) continue
-    return addPreviewPolicy(stripUnsafeMarkup(markup))
-  }
-
-  return ''
-}
 
 const reset = (clearModel = false) => {
   if (abortController) {
@@ -289,7 +243,7 @@ const reset = (clearModel = false) => {
   if (clearModel) selectedModelId.value = ''
   status.value = 'idle'
   responseText.value = ''
-  previewDocument.value = ''
+  previewOutputText.value = ''
   errorMessage.value = ''
   previewCreatedAt.value = ''
 }
@@ -317,7 +271,7 @@ const handleEvent = (event: {
         fail(t('admin.accounts.svgAnimationTest.noSvg'))
         return
       }
-      previewDocument.value = document
+      previewOutputText.value = responseText.value
       previewCreatedAt.value = event.data.created_at
       history.value = [event.data, ...history.value.filter((item) => item.id !== event.data?.id)].slice(0, 10)
       status.value = 'success'

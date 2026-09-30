@@ -17,6 +17,7 @@
             @create="showCreate = true"
           >
             <template #after>
+              <button class="btn btn-secondary btn-sm" data-testid="bulk-check-tasks" @click="openBulkDegradationTasks">{{ t('admin.accounts.degradationBatch.tasks') }}</button>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -184,6 +185,8 @@
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+          @model-trace="openBulkDegradationCheck('model_trace')"
+          @svg-animation-test="openBulkDegradationCheck('svg_animation')"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -464,6 +467,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <BulkDegradationCheckModal :show="showBulkDegradationCheck" :account-ids="bulkDegradationAccountIds" :check-type="bulkDegradationCheckType" @close="showBulkDegradationCheck = false" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
@@ -517,6 +521,8 @@ import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrs
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import BulkDegradationCheckModal from '@/components/admin/account/BulkDegradationCheckModal.vue'
+import type { AccountDegradationCheckType } from '@/api/admin/accounts'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -606,6 +612,18 @@ const showImportData = ref(false)
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
+const showBulkDegradationCheck = ref(false)
+const bulkDegradationCheckType = ref<AccountDegradationCheckType>('model_trace')
+const bulkDegradationAccountIds = ref<number[]>([])
+const openBulkDegradationCheck = (type: AccountDegradationCheckType) => {
+  bulkDegradationCheckType.value = type
+  bulkDegradationAccountIds.value = [...selIds.value]
+  showBulkDegradationCheck.value = true
+}
+const openBulkDegradationTasks = () => {
+  bulkDegradationAccountIds.value = []
+  showBulkDegradationCheck.value = true
+}
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
@@ -1472,6 +1490,7 @@ const isAnyModalOpen = computed(() => {
     showImportData.value ||
     showExportDataDialog.value ||
     showBulkEdit.value ||
+    showBulkDegradationCheck.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||
     showReAuth.value ||

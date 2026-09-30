@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
+import ModelTraceResultPanel from '../ModelTraceResultPanel.vue'
+import type { ModelTraceResult } from '@/utils/degradationChecks'
 
 const { getAvailableModels, getDegradationCheckHistory, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
@@ -225,7 +227,10 @@ describe('AccountTestModal', () => {
     })
   })
 
-  it('ModelTrace 要求显式选择模型并将该模型发送到检测接口', async () => {
+  it.each([
+    [false, 'mismatch'],
+    [null, 'unknown']
+  ] as const)('ModelTrace requires a selected model and keeps %s attribution execution successful', async (matchesExpected, verdict) => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.4', display_name: 'GPT-5.4' },
       { id: 'gpt-image-2', display_name: 'GPT Image 2' }
@@ -233,8 +238,8 @@ describe('AccountTestModal', () => {
     const result = {
       requested_model: 'gpt-5.4',
       tested_model: 'gpt-5.4',
-      expected_model_in_bank: true,
-      matches_expected: false,
+      expected_model_in_bank: matchesExpected !== null,
+      matches_expected: matchesExpected,
       prediction: 'claude-opus-4-6',
       prediction_name: 'claude-opus-4-6',
       probability: 0.72,
@@ -277,7 +282,8 @@ describe('AccountTestModal', () => {
     const [url, request] = modelTraceFetch.mock.calls[0]
     expect(String(url)).toContain('/admin/accounts/42/model-trace')
     expect(JSON.parse(String(request?.body))).toEqual({ model_id: 'gpt-5.4' })
-    expect(wrapper.text()).toContain('admin.accounts.modelTrace.mismatch')
+    expect(wrapper.text()).toContain(`admin.accounts.modelTrace.${verdict}`)
+    expect(wrapper.vm).toHaveProperty('modelTraceStatus', 'success')
     expect(wrapper.text()).toContain('claude-opus-4-6')
   })
 
@@ -398,5 +404,38 @@ describe('AccountTestModal', () => {
     await flushPromises()
     expect(vm.modelTraceStatus).toBe('success')
     expect(wrapper.get('[data-test="model-trace-result"]').text()).toContain('88.0%')
+  })
+
+  it.each([
+    [true, 'match'],
+    [false, 'mismatch'],
+    [null, 'unknown']
+  ] as const)('renders attribution %s independently of execution status', (matchesExpected, verdict) => {
+    const result: ModelTraceResult = {
+      requested_model: 'requested-public-id',
+      tested_model: 'resolved-model',
+      expected_model_in_bank: matchesExpected !== null,
+      matches_expected: matchesExpected,
+      prediction: 'first',
+      prediction_name: 'First candidate',
+      probability: 0.725,
+      family_prediction_name: 'Family A',
+      family_probability: 0.8,
+      used_outputs: 3,
+      results: [
+        { model: 'first', display_name: 'First candidate', family_name: 'Family A', probability: 0.725 },
+        { model: 'second', display_name: 'Second candidate', family_name: 'Family B', probability: 0.2 },
+        { model: 'third', display_name: 'Third candidate', family_name: 'Family C', probability: 0.05 },
+        { model: 'fourth', display_name: 'Hidden fourth candidate', family_name: 'Family D', probability: 0.025 }
+      ],
+      disclaimer: 'Closed-set statistical attribution.'
+    }
+    const wrapper = mount(ModelTraceResultPanel, { props: { result }, global: { stubs: { Icon: true } } })
+    expect(wrapper.text()).toContain(`admin.accounts.modelTrace.${verdict}`)
+    expect(wrapper.text()).toContain('72.5%')
+    expect(wrapper.text()).toContain('Second candidate')
+    expect(wrapper.text()).toContain('Third candidate')
+    expect(wrapper.text()).not.toContain('Hidden fourth candidate')
+    expect(wrapper.text()).toContain('admin.accounts.modelTrace.disclaimer')
   })
 })

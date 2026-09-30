@@ -134,31 +134,76 @@ func (s *AccountTestService) persistDegradationCheck(
 	return s.degradationCheckRepo.Create(persistCtx, result)
 }
 
-func (s *AccountTestService) recordDegradationCheckFailure(
+// degradationEventWriter captures errors hidden by the existing SSE writer.
+// Only degradation-check adapters install it; other account tests are unchanged.
+type degradationEventWriter struct {
+	gin.ResponseWriter
+	err error
+}
+
+func (w *degradationEventWriter) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	if err != nil && w.err == nil {
+		w.err = err
+	}
+	return n, err
+}
+
+func (w *degradationEventWriter) WriteString(data string) (int, error) {
+	n, err := w.ResponseWriter.WriteString(data)
+	if err != nil && w.err == nil {
+		w.err = err
+	}
+	return n, err
+}
+
+func (s *AccountTestService) emitDegradationEvent(c *gin.Context, event TestEvent) error {
+	if err := c.Request.Context().Err(); err != nil {
+		return err
+	}
+	writer, ok := c.Writer.(*degradationEventWriter)
+	if !ok {
+		writer = &degradationEventWriter{ResponseWriter: c.Writer}
+		c.Writer = writer
+	}
+	if writer.err != nil {
+		return writer.err
+	}
+	s.sendEvent(c, event)
+	if writer.err != nil {
+		return writer.err
+	}
+	return c.Request.Context().Err()
+}
+
+// RunDegradationCheck executes a check without persisting history or emitting a
+// completion event. Callers own the result commit and completion notification.
+func (s *AccountTestService) RunDegradationCheck(
 	ctx context.Context,
 	accountID int64,
 	checkType AccountDegradationCheckType,
 	requestedModel string,
-	testedModel string,
-	outputText string,
-	message string,
-) {
-	_, err := s.persistDegradationCheck(ctx, &AccountDegradationCheckResult{
-		AccountID:      accountID,
-		CheckType:      checkType,
-		RequestedModel: requestedModel,
-		TestedModel:    testedModel,
-		Status:         AccountDegradationCheckStatusError,
-		OutputText:     outputText,
-		ErrorMessage:   message,
-	})
-	if err != nil {
-		log.Printf("persist account degradation check failure: %v", err)
+	emit func(TestEvent) error,
+) (*AccountDegradationCheckResult, error) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return nil, errors.New("必须选择用于检测的模型")
+	}
+	if len(requestedModel) > 256 {
+		return nil, errors.New("模型 ID 过长")
+	}
+	switch checkType {
+	case AccountDegradationCheckModelTrace:
+		return s.runModelTraceCheck(ctx, accountID, requestedModel, emit)
+	case AccountDegradationCheckSVGAnimation:
+		return s.runSVGAnimationCheck(ctx, accountID, requestedModel, emit)
+	default:
+		return nil, errors.New("invalid degradation check type")
 	}
 }
 
-// TestSVGAnimation runs the fixed visual degradation prompt once and persists
-// the raw model output. Rendering remains client-side inside a restricted iframe.
+// TestSVGAnimation adapts the shared core to the single-account SSE endpoint.
+// Rendering remains client-side inside a restricted iframe.
 func (s *AccountTestService) TestSVGAnimation(c *gin.Context, accountID int64, requestedModel string) error {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
@@ -170,84 +215,113 @@ func (s *AccountTestService) TestSVGAnimation(c *gin.Context, accountID int64, r
 	if s == nil || s.accountRepo == nil {
 		return errors.New("account test service is unavailable")
 	}
+	ctx := c.Request.Context()
+	result, runErr := s.RunDegradationCheck(ctx, accountID, AccountDegradationCheckSVGAnimation, requestedModel, func(event TestEvent) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if event.Type == "svg_animation_start" {
+			c.Writer.Header().Set("Content-Type", "text/event-stream")
+			c.Writer.Header().Set("Cache-Control", "no-cache")
+			c.Writer.Header().Set("Connection", "keep-alive")
+			c.Writer.Header().Set("X-Accel-Buffering", "no")
+			c.Writer.Flush()
+		}
+		return s.emitDegradationEvent(c, event)
+	})
+	if result != nil {
+		if runErr == nil && ctx.Err() != nil {
+			runErr = ctx.Err()
+			result.Status = AccountDegradationCheckStatusError
+			result.ErrorMessage = degradationCheckCancelledMessage
+		}
+		historyResult, persistErr := s.persistDegradationCheck(ctx, result)
+		if persistErr != nil {
+			if runErr == nil {
+				log.Printf("persist SVG animation degradation check: %v", persistErr)
+				return s.sendErrorAndEnd(c, "保存 SVG 动画检测历史失败")
+			}
+			log.Printf("persist account degradation check failure: %v", persistErr)
+		} else if runErr == nil {
+			s.sendEvent(c, TestEvent{Type: "svg_animation_complete", Success: true, Data: historyResult})
+			return nil
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return s.sendErrorAndEnd(c, runErr.Error())
+}
 
-	account, err := s.accountRepo.GetByID(c.Request.Context(), accountID)
-	if err != nil || account == nil {
-		return s.sendErrorAndEnd(c, "Account not found")
+func (s *AccountTestService) runSVGAnimationCheck(
+	ctx context.Context,
+	accountID int64,
+	requestedModel string,
+	emit func(TestEvent) error,
+) (*AccountDegradationCheckResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, errors.New("account test service is unavailable")
 	}
-	if !supportsModelTraceAccount(account) {
-		message := "SVG 动画检测仅支持 OpenAI 和 Anthropic 的 OAuth、Setup Token 或 API Key 文本模型账号"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
-	}
-	if account.IsOpenAI() && isOpenAIImageModel(account.GetMappedModel(requestedModel)) {
-		message := "SVG 动画检测不支持图像模型"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
-	}
-
-	testedModel, err := s.resolveDegradationTestedModel(c, account, requestedModel)
+	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
-		message := err.Error()
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, "", "", message)
-		return s.sendErrorAndEnd(c, message)
+		return nil, err
 	}
-
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.Flush()
-	s.sendEvent(c, TestEvent{Type: "svg_animation_start", Model: testedModel})
-
-	outputText, probeError := s.runDegradationCheckProbe(c, account, requestedModel, SVGAnimationDegradationPrompt)
-	if c.Request.Context().Err() != nil {
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, testedModel, outputText, degradationCheckCancelledMessage)
-		return c.Request.Context().Err()
+	if account == nil {
+		return nil, ErrAccountNotFound
 	}
-	if probeError != "" {
-		message := compactDegradationCheckError(probeError)
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, testedModel, outputText, message)
-		return s.sendErrorAndEnd(c, message)
-	}
-	if !strings.Contains(strings.ToLower(outputText), "<svg") {
-		message := "模型响应中没有可预览的 SVG"
-		s.recordDegradationCheckFailure(c.Request.Context(), accountID, AccountDegradationCheckSVGAnimation, requestedModel, testedModel, outputText, message)
-		return s.sendErrorAndEnd(c, message)
-	}
-
-	historyResult, err := s.persistDegradationCheck(c.Request.Context(), &AccountDegradationCheckResult{
+	result := &AccountDegradationCheckResult{
 		AccountID:      accountID,
 		CheckType:      AccountDegradationCheckSVGAnimation,
 		RequestedModel: requestedModel,
-		TestedModel:    testedModel,
-		Status:         AccountDegradationCheckStatusSuccess,
-		OutputText:     outputText,
-	})
-	if err != nil {
-		log.Printf("persist SVG animation degradation check: %v", err)
-		return s.sendErrorAndEnd(c, "保存 SVG 动画检测历史失败")
+		Status:         AccountDegradationCheckStatusError,
+		Result:         json.RawMessage(`{}`),
 	}
-
-	s.sendEvent(c, TestEvent{Type: "svg_animation_complete", Success: true, Data: historyResult})
-	return nil
-}
-
-func (s *AccountTestService) persistModelTraceResult(
-	ctx context.Context,
-	accountID int64,
-	result *ModelTraceResult,
-) (*AccountDegradationCheckResult, error) {
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("encode ModelTrace result: %w", err)
+	fail := func(err error) (*AccountDegradationCheckResult, error) {
+		result.ErrorMessage = compactDegradationCheckError(err.Error())
+		if ctx.Err() != nil {
+			result.ErrorMessage = degradationCheckCancelledMessage
+			err = ctx.Err()
+		}
+		return result, err
 	}
-	return s.persistDegradationCheck(ctx, &AccountDegradationCheckResult{
-		AccountID:      accountID,
-		CheckType:      AccountDegradationCheckModelTrace,
-		RequestedModel: result.RequestedModel,
-		TestedModel:    result.TestedModel,
-		Status:         AccountDegradationCheckStatusSuccess,
-		Result:         resultJSON,
-	})
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	if !supportsModelTraceAccount(account) {
+		return fail(errors.New("SVG 动画检测仅支持 OpenAI 和 Anthropic 的 OAuth、Setup Token 或 API Key 文本模型账号"))
+	}
+	if account.IsOpenAI() && isOpenAIImageModel(account.GetMappedModel(requestedModel)) {
+		return fail(errors.New("SVG 动画检测不支持图像模型"))
+	}
+	result.TestedModel, err = s.resolveDegradationTestedModel(ctx, account, requestedModel)
+	if err != nil {
+		return fail(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	if emit != nil {
+		if err := emit(TestEvent{Type: "svg_animation_start", Model: result.TestedModel}); err != nil {
+			return fail(err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	var probeError string
+	result.OutputText, probeError = s.runDegradationCheckProbe(ctx, account, requestedModel, SVGAnimationDegradationPrompt)
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	if probeError != "" {
+		return fail(errors.New(compactDegradationCheckError(probeError)))
+	}
+	if !strings.Contains(strings.ToLower(result.OutputText), "<svg") {
+		return fail(errors.New("模型响应中没有可预览的 SVG"))
+	}
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	result.Status = AccountDegradationCheckStatusSuccess
+	return result, nil
 }

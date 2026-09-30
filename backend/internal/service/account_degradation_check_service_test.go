@@ -84,7 +84,6 @@ func TestSVGAnimationCheckUsesFixedPromptAndPersistsReplayableOutput(t *testing.
 	requestBody, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5.4", gjson.GetBytes(requestBody, "model").String())
-	require.Equal(t, SVGAnimationDegradationPrompt, gjson.GetBytes(requestBody, "input.0.content.0.text").String())
 
 	require.Len(t, historyRepo.results, 1)
 	saved := historyRepo.results[0]

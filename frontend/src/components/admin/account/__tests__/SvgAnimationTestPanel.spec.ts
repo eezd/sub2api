@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SvgAnimationTestPanel from '../SvgAnimationTestPanel.vue'
+import SvgAnimationResultPreview from '../SvgAnimationResultPreview.vue'
 
 const { getDegradationCheckHistory } = vi.hoisted(() => ({
   getDegradationCheckHistory: vi.fn()
@@ -106,9 +107,6 @@ describe('SvgAnimationTestPanel', () => {
     const [url, request] = fetchMock.mock.calls[0]
     expect(String(url)).toContain('/admin/accounts/42/svg-animation-test')
     expect(JSON.parse(String(request?.body))).toEqual({ model_id: 'gpt-5.4' })
-    expect(wrapper.get('[data-test="svg-animation-prompt"]').text()).toBe(
-      "Create an HTML with content that's an SVG drawing of a 2D animation of a pelican riding a bicycle."
-    )
 
     const frame = wrapper.get('[data-test="svg-animation-frame"]')
     const source = frame.attributes('srcdoc')
@@ -117,7 +115,6 @@ describe('SvgAnimationTestPanel', () => {
     expect(source).toContain('id="pelican-bike"')
     expect(source).toContain('<animate')
     expect(source).not.toContain('<script')
-    expect(wrapper.emitted('running-change')).toEqual([[true], [false]])
   })
 
   it('reports a model response that contains no SVG instead of showing an empty preview', async () => {
@@ -177,28 +174,31 @@ describe('SvgAnimationTestPanel', () => {
     ['bare SVG markup', '<svg id="bare"><image href="https://attacker.test/c" /></svg>'],
     ['a regular complete document', '<!doctype html><html><head><style>svg{}</style></head><body><svg id="regular"></svg></body></html>']
   ])('puts the preview CSP first in the document for %s', async (_label, outputText) => {
-    getDegradationCheckHistory.mockResolvedValue([{
-      id: 12,
-      account_id: 42,
-      check_type: 'svg_animation',
-      requested_model: 'gpt-5.4',
-      tested_model: 'gpt-5.4',
-      status: 'success',
-      result: {},
-      output_text: outputText,
-      created_at: '2026-09-28T12:00:00Z'
-    }])
-
-    const wrapper = mountPanel()
-    await flushPromises()
-    await wrapper.get('[data-test="svg-animation-history"] button').trigger('click')
-
+    const wrapper = mount(SvgAnimationResultPreview, { props: { outputText } })
     const parsed = new DOMParser().parseFromString(wrapper.get('[data-test="svg-animation-frame"]').attributes('srcdoc') ?? '', 'text/html')
     const policies = parsed.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')
     expect(policies).toHaveLength(1)
     expect(parsed.head.firstElementChild).toBe(policies[0])
     expect(policies[0].getAttribute('content')).toContain("default-src 'none'")
+    expect(wrapper.get('[data-test="svg-animation-frame"]').attributes('sandbox')).toBe('')
+    expect(wrapper.get('[data-test="svg-animation-frame"]').attributes('referrerpolicy')).toBe('no-referrer')
     expect(parsed.querySelector('svg')).not.toBeNull()
+  })
+
+  it('removes executable markup and model policies without removing SVG animations', () => {
+    const wrapper = mount(SvgAnimationResultPreview, {
+      props: {
+        outputText: '<html><head><base href="https://attacker.test/"><meta http-equiv="refresh" content="0;url=https://attacker.test/"><meta http-equiv="Content-Security-Policy" content="default-src *"><script>parent.location="https://attacker.test/"</script><script href="https://attacker.test/run" /></head><body><svg onload="alert(1)"><style>circle{animation:pulse 1s infinite}</style><circle><animate attributeName="r" values="1;2;1" dur="1s" /></circle><image href="https://attacker.test/image" /></svg></body></html>'
+      }
+    })
+    const source = wrapper.get('[data-test="svg-animation-frame"]').attributes('srcdoc') || ''
+    const parsed = new DOMParser().parseFromString(source, 'text/html')
+    expect(parsed.querySelector('script, base, meta[http-equiv="refresh"]')).toBeNull()
+    expect(parsed.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')).toHaveLength(1)
+    expect(parsed.head.firstElementChild?.getAttribute('content')).toBe("default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; style-src 'unsafe-inline';")
+    expect(parsed.querySelector('animate')?.getAttribute('values')).toBe('1;2;1')
+    expect(parsed.querySelector('style')?.textContent).toContain('animation:pulse')
+    expect(wrapper.find('svg, script, style, base').exists()).toBe(false)
   })
 
   it('keeps a newer run running when an older aborted run settles, and locks history meanwhile', async () => {

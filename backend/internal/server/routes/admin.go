@@ -359,6 +359,12 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
+		accounts.POST("/degradation-check-batches", h.Admin.Account.CreateDegradationCheckBatch)
+		accounts.GET("/degradation-check-batches", h.Admin.Account.ListDegradationCheckBatches)
+		accounts.GET("/degradation-check-batches/:batchId", h.Admin.Account.GetDegradationCheckBatch)
+		accounts.GET("/degradation-check-batches/:batchId/items", h.Admin.Account.ListDegradationCheckBatchItems)
+		accounts.GET("/degradation-check-batches/:batchId/items/:itemId", h.Admin.Account.GetDegradationCheckBatchItem)
+		accounts.POST("/degradation-check-batches/:batchId/cancel", h.Admin.Account.CancelDegradationCheckBatch)
 		accounts.GET("/upstream-billing-rates", h.Admin.Account.GetUpstreamBillingRates)
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
 		accounts.PUT("/upstream-billing-probe/settings", h.Admin.Account.UpdateUpstreamBillingProbeSettings)
