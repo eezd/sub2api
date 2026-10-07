@@ -54,7 +54,7 @@ Requires: >=0.2.9 <0.3.0
 - OAuth 和 API Key 多账号管理。
 - API Key 分发、分组、粘性会话、账号调度、故障转移、并发限制和速率限制。
 - Token 级用量统计、模型定价、计费、订阅和内置支付服务商。
-- 当前版本提供的 OpenAI 兼容、Anthropic 兼容、Gemini、Grok/xAI、Antigravity 等供应商接入。
+- 当前版本提供的 OpenAI 兼容、Anthropic 兼容、Gemini、Grok/xAI、Antigravity、TypeSafe/Jev（原生 System One，`POST /v1/systemone`）等供应商接入。
 - Composite Groups：根据模型在多个供应商之间路由（[运维指南](docs/COMPOSITE_GROUPS.md)）。
 - 同步和异步图片任务、批量图片处理，以及 OpenAI Responses WebSocket 入口限制。
 - 管理监控、用量报表、备份、Prompt Audit、安全设置和外部管理后台集成。
@@ -90,7 +90,7 @@ docker compose -f docker-compose.local.yml up -d
 docker compose -f docker-compose.local.yml logs -f sub2api
 ```
 
-打开 `http://你的服务器IP:8080`。`AUTO_SETUP=true` 时，容器会执行数据库迁移并创建初始管理员账号。如果没有设置 `ADMIN_PASSWORD`，请从应用日志中读取自动生成的密码。
+打开 `http://你的服务器IP:8080`。`AUTO_SETUP=true` 时，容器会执行数据库迁移并创建初始管理员账号。`ADMIN_EMAIL`/`ADMIN_PASSWORD` 留空时会自动生成随机的登录邮箱和密码（避免使用 `admin@example.com` 等易猜值），可在应用日志中用 `grep "Generated admin"` 查看。
 
 生产环境请固定使用 fork 的具体版本，不要使用 `latest`。本地目录版 Compose 更适合生产，因为 `data/`、`postgres_data/` 和 `redis_data/` 可以一起备份和迁移。
 

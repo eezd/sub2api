@@ -54,7 +54,7 @@ Requires: >=0.2.9 <0.3.0
 - OAuth および API Key アカウントのマルチアカウント管理。
 - API Key 配布、グループ、スティッキーセッション、アカウントスケジューリング、フェイルオーバー、同時実行数制限、レート制限。
 - Token 単位の使用量、モデル価格、課金、サブスクリプション、組み込み決済プロバイダー。
-- 現行リリースで利用できる OpenAI 互換、Anthropic 互換、Gemini、Grok/xAI、Antigravity などのプロバイダー連携。
+- 現行リリースで利用できる OpenAI 互換、Anthropic 互換、Gemini、Grok/xAI、Antigravity、TypeSafe/Jev（ネイティブ System One、`POST /v1/systemone`）などのプロバイダー連携。
 - Composite Groups によるモデルベースのプロバイダールーティング（[運用ガイド](docs/COMPOSITE_GROUPS.md)）。
 - 同期/非同期画像タスク、バッチ画像処理、OpenAI Responses WebSocket の ingress 制御。
 - 管理監視、使用量レポート、バックアップ、Prompt Audit、セキュリティ設定、外部管理画面連携。
@@ -90,7 +90,7 @@ docker compose -f docker-compose.local.yml up -d
 docker compose -f docker-compose.local.yml logs -f sub2api
 ```
 
-`http://YOUR_SERVER_IP:8080` を開いてください。`AUTO_SETUP=true` の場合、コンテナはマイグレーションを適用し、初期管理者を作成します。`ADMIN_PASSWORD` を設定していない場合は、アプリケーションログから自動生成されたパスワードを確認します。
+`http://YOUR_SERVER_IP:8080` を開いてください。`AUTO_SETUP=true` の場合、コンテナはマイグレーションを適用し、初期管理者を作成します。`ADMIN_EMAIL`/`ADMIN_PASSWORD` を空欄にするとランダムなログインメールアドレスとパスワードが自動生成されます（`admin@example.com` のような推測されやすい値は避けてください）。アプリケーションログで `grep "Generated admin"` により確認できます。
 
 本番環境では `latest` を使わず、fork の固定バージョンを使用してください。ローカルディレクトリ版は `data/`、`postgres_data/`、`redis_data/` をまとめてバックアップ・移行できるため推奨です。
 

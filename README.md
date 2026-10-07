@@ -54,7 +54,7 @@ This fork includes the upstream platform capabilities, including:
 - Multi-account management for OAuth and API-key accounts.
 - API-key distribution, groups, sticky sessions, account scheduling, failover, concurrency limits, and rate limiting.
 - Token-level usage tracking, model pricing, billing, subscriptions, and built-in payment providers.
-- OpenAI-compatible, Anthropic-compatible, Gemini, Grok/xAI, Antigravity, and other provider integrations available in the current release.
+- OpenAI-compatible, Anthropic-compatible, Gemini, Grok/xAI, Antigravity, TypeSafe/Jev (native System One at `POST /v1/systemone`), and other provider integrations available in the current release.
 - Composite groups for model-based routing across providers ([operator guide](docs/COMPOSITE_GROUPS.md)).
 - Synchronous and asynchronous image tasks, batch image processing, and OpenAI Responses WebSocket ingress controls.
 - Admin monitoring, usage reports, backups, prompt audit, security settings, and external dashboard integrations.
@@ -90,7 +90,7 @@ docker compose -f docker-compose.local.yml up -d
 docker compose -f docker-compose.local.yml logs -f sub2api
 ```
 
-Open `http://YOUR_SERVER_IP:8080`. With `AUTO_SETUP=true`, the container applies migrations and creates the initial admin account. If `ADMIN_PASSWORD` is not set, read the generated password from the application logs.
+Open `http://YOUR_SERVER_IP:8080`. With `AUTO_SETUP=true`, the container applies migrations and creates the initial admin account. Leave `ADMIN_EMAIL`/`ADMIN_PASSWORD` empty to auto-generate a random login email and password (avoid guessable values such as `admin@example.com`); find them in the application logs with `grep "Generated admin"`.
 
 For production, pin an exact fork release instead of using `latest`. The local-directory Compose variant is recommended because `data/`, `postgres_data/`, and `redis_data/` can be backed up and migrated together.
 
