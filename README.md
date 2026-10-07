@@ -228,6 +228,12 @@ Content-Type: application/json
 {"account_ids":[101,102,103]}
 ```
 
+Request timing details are diagnostic-only and readable for 30 days (including the cutoff). Expired details stay hidden even before physical cleanup; hourly cleanup deletes batches of at most 10,000 rows under one five-second deadline. A downstream disconnect is recorded separately from upstream completion: drained usage and the disconnect state are retained even if the upstream later fails, without issuing another model request. Cancellation or a closed pipe caused by closing a successfully completed stream is not reported as an upstream transport failure; errors returned by Read before Close begins remain visible. OpenAI passthrough retains the requested service tier and reasoning effort for the existing billing rules.
+
+Upstream balance probes accept responses up to 256 KiB; billing declarations retain their separate 64 KiB limit. Oversized balance responses fail without replacing the last successful balance.
+
+Mihomo fixed node ports are persistent, monotonically allocated, and never reused. Hot reload preflights only newly added ports and verifies SOCKS readiness on all configured node ports before saving, including existing listeners rebuilt by node disable/recover operations. On reload/readiness failure, it restores and verifies the old configuration using an independent bounded context; if restoration cannot be verified, it stops the managed kernel instead of claiming the old configuration is active. Node listeners are TCP-only (HTTP/SOCKS5 CONNECT, `udp: false`), so an occupied UDP port can no longer leave a half-bound listener behind.
+
 ## Nginx and reverse proxies
 
 When Nginx proxies Codex or other clients that use underscore-containing headers, add this inside the `http` block:

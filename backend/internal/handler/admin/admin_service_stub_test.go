@@ -689,6 +689,14 @@ func (s *stubAdminService) TestProxy(ctx context.Context, id int64) (*service.Pr
 	return &service.ProxyTestResult{Success: true, Message: "ok"}, nil
 }
 
+func (s *stubAdminService) TestMihomoNode(ctx context.Context, kernel service.MihomoNodeProber, name string) (*service.ProxyTestResult, error) {
+	return &service.ProxyTestResult{Success: true, Message: "ok"}, nil
+}
+
+func (s *stubAdminService) CheckMihomoNodeQuality(ctx context.Context, kernel service.MihomoNodeProber, name string) (*service.ProxyQualityCheckResult, error) {
+	return &service.ProxyQualityCheckResult{Score: 100, Grade: "A", CheckedAt: time.Now().Unix()}, nil
+}
+
 func (s *stubAdminService) CheckProxyQuality(ctx context.Context, id int64) (*service.ProxyQualityCheckResult, error) {
 	return &service.ProxyQualityCheckResult{
 		ProxyID:        id,

@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -90,6 +91,130 @@ func (u *httpUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID 
 func (u *httpUpstreamRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	u.lastTLSProfile = profile
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+type openAIForwardDisconnectedWriter struct {
+	gin.ResponseWriter
+	writeAttempts int
+}
+
+func (w *openAIForwardDisconnectedWriter) Write([]byte) (int, error) {
+	w.writeAttempts++
+	return 0, errors.New("client disconnected")
+}
+
+func (w *openAIForwardDisconnectedWriter) WriteString(string) (int, error) {
+	w.writeAttempts++
+	return 0, errors.New("client disconnected")
+}
+
+func TestOpenAIGatewayForwardClientDisconnectDrainsUsageAndTiming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"hello"}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_disconnect","status":"completed","usage":{"input_tokens":7,"output_tokens":11}}}`,
+		"",
+	}, "\n")
+	for _, tc := range []struct {
+		name    string
+		account *Account
+		body    string
+	}{
+		{
+			name: "native",
+			account: &Account{ID: 601, Name: "oauth", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+				Credentials: map[string]any{"access_token": "token", "chatgpt_account_id": "acct"}},
+			body: `{"model":"gpt-5.4","stream":true,"instructions":"Reply","input":[]}`,
+		},
+		{
+			name: "passthrough",
+			account: &Account{ID: 602, Name: "api", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"}, Extra: map[string]any{"openai_passthrough": true}},
+			body: `{"model":"gpt-5.4","stream":true,"input":[]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Writer = &openAIForwardDisconnectedWriter{ResponseWriter: c.Writer}
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(tc.body))
+			collector := requesttiming.New(time.Now(), 0)
+			c.Request = c.Request.WithContext(requesttiming.With(c.Request.Context(), collector))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream))}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			result, err := svc.Forward(c.Request.Context(), c, tc.account, []byte(tc.body))
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.True(t, result.ClientDisconnect)
+			require.Equal(t, 7, result.Usage.InputTokens)
+			require.Equal(t, 11, result.Usage.OutputTokens)
+			require.Len(t, upstream.requests, 1, "client disconnect must not retry the model request")
+			collector.Finish(http.StatusOK, false)
+			collector.WhenFinished(func(snapshot requesttiming.Snapshot) {
+				require.Equal(t, "client_disconnected", snapshot.Outcome)
+				require.True(t, snapshot.ClientDisconnect)
+			})
+		})
+	}
+}
+
+func TestOpenAIGatewayForwardClientDisconnectRetainsPartialUsageOnError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, passthrough := range []bool{false, true} {
+		name := "native"
+		account := &Account{ID: 601, Name: "oauth", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+			Credentials: map[string]any{"access_token": "token", "chatgpt_account_id": "acct"}}
+		if passthrough {
+			name = "passthrough"
+			account = &Account{ID: 602, Name: "api", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"}, Extra: map[string]any{"openai_passthrough": true}}
+		}
+		for _, tc := range []struct {
+			name                      string
+			tail                      string
+			readErr                   error
+			inputTokens, outputTokens int
+		}{
+			{name: "failed terminal", tail: "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_partial\",\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"failed after output\"},\"usage\":{\"input_tokens\":7,\"output_tokens\":11}}}\n\n", inputTokens: 7, outputTokens: 11},
+			{name: "read canceled", readErr: context.Canceled},
+			{name: "read incomplete", readErr: io.ErrUnexpectedEOF},
+		} {
+			t.Run(name+"/"+tc.name, func(t *testing.T) {
+				body := []byte(`{"model":"gpt-5.4","stream":true,"instructions":"Reply","input":[]}`)
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				writer := &openAIForwardDisconnectedWriter{ResponseWriter: c.Writer}
+				c.Writer = writer
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+				collector := requesttiming.New(time.Now(), 0)
+				ctx := requesttiming.With(c.Request.Context(), collector)
+				c.Request = c.Request.WithContext(ctx)
+				var reader io.Reader = strings.NewReader("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n" + tc.tail)
+				if tc.readErr != nil {
+					reader = io.MultiReader(reader, passthroughErrReadCloser{err: tc.readErr})
+				}
+				upstreamBody := &passthroughCloseTrackingReadCloser{Reader: reader}
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: upstreamBody}}
+				svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+				result, err := svc.Forward(ctx, c, account, body)
+				require.Error(t, err)
+				require.NoError(t, ctx.Err(), "disconnect must not depend on request context cancellation")
+				require.Positive(t, writer.writeAttempts)
+				require.NotNil(t, result, "the handler needs a partial result to retain usage and stop failover")
+				require.True(t, result.ClientDisconnect)
+				require.Equal(t, tc.inputTokens, result.Usage.InputTokens)
+				require.Equal(t, tc.outputTokens, result.Usage.OutputTokens)
+				require.Len(t, upstream.requests, 1)
+				require.True(t, upstreamBody.closed)
+				collector.Finish(http.StatusOK, false)
+				collector.WhenFinished(func(snapshot requesttiming.Snapshot) {
+					require.Equal(t, "client_disconnected", snapshot.Outcome)
+					require.True(t, snapshot.ClientDisconnect)
+				})
+			})
+		}
+	}
 }
 
 func TestOpenAIGatewayService_ResponsesUnknownModelDoesNotFallbackToGPT54(t *testing.T) {

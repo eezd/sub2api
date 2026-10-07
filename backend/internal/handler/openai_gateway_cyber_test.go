@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -233,4 +234,20 @@ func TestBuildCyberPolicyOpsErrorEntry_StatusCode(t *testing.T) {
 			require.Equal(t, "request", entry.ErrorPhase)
 		})
 	}
+}
+
+// TestCyberFallbackUsageNeeded verifies the cyber fallback usage row is written
+// only when forward failed without a partial result. A partial result (for
+// example usage drained after a client disconnect) is billed by the normal
+// RecordUsage path, so a second cyber row would charge the same tokens twice.
+func TestCyberFallbackUsageNeeded(t *testing.T) {
+	forwardErr := errors.New("stream usage incomplete after disconnect")
+	partial := &service.OpenAIForwardResult{
+		ClientDisconnect: true,
+		Usage:            service.OpenAIUsage{InputTokens: 7, OutputTokens: 11},
+	}
+	require.False(t, cyberFallbackUsageNeeded(&service.OpenAIForwardResult{}, nil), "success is billed by RecordUsage")
+	require.True(t, cyberFallbackUsageNeeded(nil, forwardErr), "errors without a result rely on the cyber fallback row")
+	require.False(t, cyberFallbackUsageNeeded(partial, forwardErr), "disconnected partial result is billed by RecordUsage")
+	require.False(t, cyberFallbackUsageNeeded(&service.OpenAIForwardResult{Usage: partial.Usage}, forwardErr), "any partial result is billed by RecordUsage")
 }

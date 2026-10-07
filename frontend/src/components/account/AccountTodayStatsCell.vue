@@ -32,6 +32,18 @@
           formatTokens(props.stats.tokens)
         }}</span>
       </div>
+      <!-- Lifetime tokens -->
+      <div
+        v-if="props.stats.lifetime_tokens != null || props.stats.lifetime_cost != null"
+        class="flex items-center gap-1"
+      >
+        <span class="text-gray-500 dark:text-gray-400"
+          >{{ t('admin.accounts.stats.lifetimeTokens') }}:</span
+        >
+        <span class="font-medium text-gray-700 dark:text-gray-300">{{
+          formatTokens(props.stats.lifetime_tokens ?? 0)
+        }}</span>
+      </div>
       <!-- Cost (Account) -->
       <div class="flex items-center gap-1">
         <span class="text-gray-500 dark:text-gray-400">{{ t('usage.accountBilled') }}:</span>
@@ -44,6 +56,18 @@
         <span class="text-gray-500 dark:text-gray-400">{{ t('usage.userBilled') }}:</span>
         <span class="font-medium text-gray-700 dark:text-gray-300">{{
           formatCurrency(props.stats.user_cost)
+        }}</span>
+      </div>
+      <!-- Lifetime cost -->
+      <div
+        v-if="props.stats.lifetime_tokens != null || props.stats.lifetime_cost != null"
+        class="flex items-center gap-1"
+      >
+        <span class="text-gray-500 dark:text-gray-400"
+          >{{ t('admin.accounts.stats.lifetimeCost') }}:</span
+        >
+        <span class="font-medium text-gray-700 dark:text-gray-300">{{
+          formatCurrency(props.stats.lifetime_cost ?? 0)
         }}</span>
       </div>
     </div>

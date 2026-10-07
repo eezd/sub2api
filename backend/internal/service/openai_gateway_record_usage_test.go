@@ -3,12 +3,16 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -3297,4 +3301,62 @@ func TestOpenAIGatewayServiceRecordUsage_ServiceTierNeverRaisedByUpstreamRespons
 	baseCost, calcErr := svc.billingService.CalculateCost("gpt-5.4", UsageTokens{InputTokens: 100, OutputTokens: 50}, 1.0)
 	require.NoError(t, calcErr)
 	require.InDelta(t, baseCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-10)
+}
+
+func TestOpenAIPassthroughRecordsTierAndEffortPricing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, accountType, observedTier, billingTier string
+		stream                                       bool
+		tierMultiplier                               float64
+	}{
+		{name: "OAuth default echo keeps priority", accountType: AccountTypeOAuth, stream: true, observedTier: "default", billingTier: "priority", tierMultiplier: 2.5},
+		{name: "API priority honored", accountType: AccountTypeAPIKey, observedTier: "priority", billingTier: "priority", tierMultiplier: 2.5},
+		{name: "API default downgrade", accountType: AccountTypeAPIKey, observedTier: "default", billingTier: "default", tierMultiplier: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+			svc.resolver = NewModelPricingResolver(nil, svc.billingService)
+			groupID := int64(77)
+			inputPrice, outputPrice, fastMultiplier := 0.001, 0.002, 2.5
+			apiKey := &APIKey{ID: 1020, GroupID: &groupID, Group: &Group{
+				ID: groupID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true, RateMultiplier: 0.8,
+				ModelPricing: []ChannelModelPricing{{Models: []string{"gpt-5.2"}, BillingMode: BillingModeToken,
+					InputPrice: &inputPrice, OutputPrice: &outputPrice, FastMultiplier: &fastMultiplier,
+					ReasoningEffortMultipliers: map[string]float64{"high": 1.7}}},
+			}}
+			account := &Account{ID: 3020, Platform: PlatformOpenAI, Type: tc.accountType, Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example", "access_token": "oauth-token", "chatgpt_account_id": "acct"},
+				Extra:       map[string]any{"openai_passthrough": true}}
+			response := `{"id":"resp_pricing","model":"gpt-5.2","service_tier":"` + tc.observedTier + `","output":[],"usage":{"input_tokens":100,"output_tokens":50}}`
+			contentType := "application/json"
+			streamValue := "false"
+			if tc.stream {
+				streamValue = "true"
+				contentType = "text/event-stream"
+				response = "data: {\"type\":\"response.completed\",\"response\":" + response + "}\n\n"
+			}
+			svc.httpUpstream = &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
+				Header: http.Header{"Content-Type": []string{contentType}, "X-Request-Id": []string{"rid-pricing"}},
+				Body:   io.NopCloser(strings.NewReader(response))}}
+			body := []byte(`{"model":"gpt-5.2","instructions":"Reply","stream":` + streamValue + `,"service_tier":"priority","reasoning":{"effort":"high"},"input":[]}`)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+			result, err := svc.Forward(c.Request.Context(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.NoError(t, svc.RecordUsage(c.Request.Context(), &OpenAIRecordUsageInput{Result: result, APIKey: apiKey, User: &User{ID: 2020}, Account: account}))
+			require.NotNil(t, usageRepo.lastLog)
+			require.NotNil(t, usageRepo.lastLog.ServiceTier)
+			require.Equal(t, tc.billingTier, *usageRepo.lastLog.ServiceTier)
+			require.NotNil(t, usageRepo.lastLog.ReasoningEffort)
+			require.Equal(t, "high", *usageRepo.lastLog.ReasoningEffort)
+			wantTotal := 0.2 * tc.tierMultiplier * 1.7
+			require.InDelta(t, wantTotal, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, wantTotal*0.8, usageRepo.lastLog.ActualCost, 1e-12)
+			require.InDelta(t, wantTotal*0.8, userRepo.lastAmount, 1e-12)
+		})
+	}
 }

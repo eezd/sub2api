@@ -679,6 +679,11 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	system := admin.Group("/system")
 	{
 		system.GET("/version", h.Admin.System.GetVersion)
+		system.GET("/mihomo", h.Admin.System.GetMihomo)
+		system.POST("/mihomo", h.Admin.System.ManageMihomo)
+		system.PUT("/mihomo/download-mode", h.Admin.System.SetMihomoDownloadMode)
+		system.POST("/mihomo/nodes/:name/test", h.Admin.System.TestMihomoNode)
+		system.POST("/mihomo/nodes/:name/quality-check", h.Admin.System.CheckMihomoNodeQuality)
 		system.GET("/check-updates", h.Admin.System.CheckUpdates)
 		system.GET("/rollback-versions", h.Admin.System.GetRollbackVersions)
 		system.POST("/update", h.Admin.System.PerformUpdate)
@@ -715,6 +720,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		usage.GET("", h.Admin.Usage.List)
 		usage.GET("/stats", h.Admin.Usage.Stats)
+		usage.GET("/:id/timing", h.Admin.Usage.Timing)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)
 		usage.GET("/search-api-keys", h.Admin.Usage.SearchAPIKeys)
 		usage.GET("/cleanup-tasks", h.Admin.Usage.ListCleanupTasks)

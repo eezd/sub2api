@@ -8,6 +8,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -31,19 +32,24 @@ import (
 //     local_model_configuration 与 ingress 拒绝原因 model_not_allowed。
 func GroupModelAllowlist() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		done := requesttiming.Observe(c.Request.Context(), "model_allowlist")
+		defer done()
 		apiKey, ok := GetAPIKeyFromContext(c)
 		if !ok || apiKey == nil || apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+			done()
 			c.Next()
 			return
 		}
 		allowlist := apiKey.Group.ModelAllowlist
 		if c.Request == nil {
+			done()
 			c.Next()
 			return
 		}
 
 		if isResponsesWebSocketRoute(c) {
 			// Responses WS 长连接由 ResponsesWebSocket 校验首帧与每个 response.create。
+			done()
 			c.Next()
 			return
 		}
@@ -78,6 +84,7 @@ func GroupModelAllowlist() gin.HandlerFunc {
 			}
 		}
 		if blocked == "" {
+			done()
 			c.Next()
 			return
 		}
