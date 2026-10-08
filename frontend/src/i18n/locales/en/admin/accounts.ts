@@ -268,6 +268,12 @@ export default {
       accountSchedulingThresholdOverrideValue: 'Account threshold percent',
       accountSchedulingThresholdOverrideDisabledHint:
         'Use 1-100. The account becomes temporarily unschedulable after reaching this usage percent; 100 disables it for this account.',
+      accountSchedulingWindowThresholdOverride: 'Per-window override (optional)',
+      accountSchedulingThreshold5h: '5-hour window threshold',
+      accountSchedulingThreshold7d: 'Weekly window threshold',
+      accountSchedulingWindowThresholdPlaceholder: 'Empty = use unified threshold',
+      accountSchedulingWindowThresholdOverrideHint:
+        'Use 1-100. Applies only to that usage window and takes precedence over the unified threshold above and platform settings; 100 disables pausing for that window. Example: 5-hour 100 and weekly 80 means no 5-hour limit, and the account pauses until the weekly reset once weekly usage reaches 80%.',
       status: {
         active: 'Active',
         inactive: 'Inactive',

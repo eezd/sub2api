@@ -528,3 +528,109 @@ func TestEvaluateAccountSchedulingThreshold_GrokUsesOnlyHeaderQuotaWindow(t *tes
 	require.NotNil(t, decision.Until)
 	require.True(t, headerUntil.Equal(*decision.Until))
 }
+
+// 周限 80% 停调、5h 不限：5h 用满不停，周用量到 80% 停到周重置。
+func TestEvaluateAccountSchedulingThreshold_AnthropicWindowOverridesWeeklyOnly(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	sessionEnd := now.Add(3 * time.Hour)
+	weeklyReset := now.Add(96 * time.Hour)
+	newAccount := func(session, weekly float64) *Account {
+		return &Account{
+			Platform:         PlatformAnthropic,
+			SessionWindowEnd: &sessionEnd,
+			Credentials: map[string]any{
+				accountSchedulingThreshold5hCredentialKey: 100,
+				accountSchedulingThreshold7dCredentialKey: 80,
+			},
+			Extra: map[string]any{
+				"session_window_utilization":   session,
+				"passive_usage_7d_utilization": weekly,
+				"passive_usage_7d_reset":       weeklyReset.Format(time.RFC3339),
+			},
+		}
+	}
+	// 平台默认 90；窗口级覆盖优先于平台默认。
+	thresholds := map[string]int{PlatformAnthropic: 90}
+
+	decision := EvaluateAccountSchedulingThreshold(newAccount(1.0, 0.5), thresholds, now)
+	require.False(t, decision.ShouldPause, "5h 窗口设为 100 时不应停调")
+
+	decision = EvaluateAccountSchedulingThreshold(newAccount(0.99, 0.8), thresholds, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, "7d", decision.Window)
+	require.Equal(t, 80, decision.ThresholdPercent)
+	require.NotNil(t, decision.Until)
+	require.True(t, weeklyReset.Equal(*decision.Until))
+}
+
+// 仅设置窗口级覆盖、平台与账号统一阈值均未配置时，覆盖的窗口仍然生效，其余窗口不停调。
+func TestEvaluateAccountSchedulingThreshold_WindowOverrideWorksWithoutBaseThreshold(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	account := &Account{
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{accountSchedulingThreshold7dCredentialKey: "80"},
+		Extra: map[string]any{
+			"codex_5h_used_percent": 99.0,
+			"codex_5h_reset_at":     now.Add(2 * time.Hour).Format(time.RFC3339),
+			"codex_7d_used_percent": 60.0,
+			"codex_7d_reset_at":     now.Add(72 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	require.False(t, EvaluateAccountSchedulingThreshold(account, nil, now).ShouldPause)
+
+	account.Extra["codex_7d_used_percent"] = 81.0
+	decision := EvaluateAccountSchedulingThreshold(account, nil, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, "7d", decision.Window)
+	require.Equal(t, 80, decision.ThresholdPercent)
+}
+
+// 未设置的窗口回落到账号统一阈值。
+func TestEvaluateAccountSchedulingThreshold_UnsetWindowFallsBackToAccountOverride(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	sessionEnd := now.Add(3 * time.Hour)
+	account := &Account{
+		Platform:         PlatformAnthropic,
+		SessionWindowEnd: &sessionEnd,
+		Credentials: map[string]any{
+			accountSchedulingThresholdCredentialKey:   70,
+			accountSchedulingThreshold7dCredentialKey: 100,
+		},
+		Extra: map[string]any{
+			"session_window_utilization":   0.75,
+			"passive_usage_7d_utilization": 0.95,
+			"passive_usage_7d_reset":       now.Add(96 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	decision := EvaluateAccountSchedulingThreshold(account, map[string]int{PlatformAnthropic: 100}, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, "5h", decision.Window)
+	require.Equal(t, 70, decision.ThresholdPercent)
+}
+
+// Fable 7d_oi 周窗口遵循 7d 窗口级覆盖。
+func TestEvaluateAnthropicFableSchedulingThreshold_UsesWeeklyWindowOverride(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	account := &Account{
+		Platform:    PlatformAnthropic,
+		Credentials: map[string]any{accountSchedulingThreshold7dCredentialKey: 80},
+		Extra: map[string]any{
+			"passive_usage_7d_oi_utilization": 0.85,
+			"passive_usage_7d_oi_reset":       now.Add(48 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	decision := evaluateAnthropicFableSchedulingThreshold(account, map[string]int{PlatformAnthropic: 100}, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, 80, decision.ThresholdPercent)
+
+	account.Credentials[accountSchedulingThreshold7dCredentialKey] = 100
+	require.False(t, evaluateAnthropicFableSchedulingThreshold(account, map[string]int{PlatformAnthropic: 50}, now).ShouldPause)
+}

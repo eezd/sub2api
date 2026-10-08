@@ -349,6 +349,33 @@ describe('EditAccountModal', () => {
     ])
   })
 
+  it('loads and saves per-window scheduling threshold overrides', async () => {
+    const account = buildAccount()
+    account.credentials.account_scheduling_threshold_5h = 100
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const input5h = wrapper.get<HTMLInputElement>('[data-testid="account-scheduling-threshold-5h"]')
+    const input7d = wrapper.get<HTMLInputElement>('[data-testid="account-scheduling-threshold-7d"]')
+    expect(input5h.element.value).toBe('100')
+    expect(input7d.element.value).toBe('')
+
+    // 5h 留空即删除覆盖；周设 80
+    await input5h.setValue('')
+    await input7d.setValue('80')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials?.account_scheduling_threshold_5h).toBeNull()
+    expect(credentials?.account_scheduling_threshold_7d).toBe(80)
+  })
+
+  it('hides per-window scheduling threshold overrides for platforms without both windows', () => {
+    const wrapper = mountModal(buildGrokAPIKeyAccount())
+    expect(wrapper.find('[data-testid="account-scheduling-window-threshold-section"]').exists()).toBe(false)
+  })
+
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2028-02-29T12:34:00'))

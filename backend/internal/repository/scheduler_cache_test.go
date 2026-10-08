@@ -20,6 +20,20 @@ func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	require.NotContains(t, filtered, "refresh_token")
 }
 
+func TestFilterSchedulerCredentialsKeepsSchedulingThresholdOverrides(t *testing.T) {
+	filtered := filterSchedulerCredentials(map[string]any{
+		"account_scheduling_threshold":    90,
+		"account_scheduling_threshold_5h": 100,
+		"account_scheduling_threshold_7d": 80,
+		"access_token":                    "secret-access-token",
+	})
+
+	require.Equal(t, 90, filtered["account_scheduling_threshold"])
+	require.Equal(t, 100, filtered["account_scheduling_threshold_5h"])
+	require.Equal(t, 80, filtered["account_scheduling_threshold_7d"])
+	require.NotContains(t, filtered, "access_token")
+}
+
 func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 	account := service.Account{
 		ID:       24,

@@ -28,6 +28,13 @@ type accountSchedulingThresholdCandidate struct {
 
 const accountSchedulingThresholdCredentialKey = "account_scheduling_threshold"
 
+// 按窗口覆盖的账号级阈值（凭据键）。设置后仅作用于对应窗口，优先于账号级
+// 统一阈值与平台默认值；未设置的窗口仍沿用统一阈值。100 表示该窗口不停调。
+const (
+	accountSchedulingThreshold5hCredentialKey = "account_scheduling_threshold_5h"
+	accountSchedulingThreshold7dCredentialKey = "account_scheduling_threshold_7d"
+)
+
 // EvaluateAccountSchedulingThreshold evaluates whether an account should be paused
 // based on the current per-platform scheduling threshold snapshot.
 func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]int, now time.Time) AccountSchedulingThresholdDecision {
@@ -46,29 +53,34 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 
 	threshold, ok := resolveEffectiveAccountSchedulingThreshold(account, thresholds, decision.Platform)
 	decision.ThresholdPercent = threshold
-	if !ok || threshold >= 100 {
+	// 统一阈值未配置/禁用且没有任何窗口级覆盖时，无需读取用量快照。
+	if (!ok || threshold >= 100) && !accountHasWindowSchedulingThresholdOverride(account) {
 		return decision
 	}
 
-	var winner *accountSchedulingThresholdCandidate
+	var candidates []*accountSchedulingThresholdCandidate
 	switch decision.Platform {
 	case PlatformOpenAI:
-		winner = pickLatestResetSchedulingCandidate(openAIThresholdCandidates(account, now), threshold, now)
+		candidates = openAIThresholdCandidates(account, now)
 	case PlatformAnthropic:
-		winner = pickLatestResetSchedulingCandidate(anthropicThresholdCandidates(account), threshold, now)
+		candidates = anthropicThresholdCandidates(account)
 	case PlatformGrok:
-		winner = pickLatestResetSchedulingCandidate(grokThresholdCandidates(account), threshold, now)
+		candidates = grokThresholdCandidates(account)
 	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo:
-		winner = pickLatestResetSchedulingCandidate(cnProviderThresholdCandidates(account, decision.Platform), threshold, now)
+		candidates = cnProviderThresholdCandidates(account, decision.Platform)
 	default:
 		return decision
 	}
 
+	winner, winnerThreshold := pickLatestResetSchedulingCandidate(candidates, func(window string) (int, bool) {
+		return resolveWindowSchedulingThreshold(account, window, threshold, ok)
+	}, now)
 	if winner == nil {
 		return decision
 	}
 
 	decision.ShouldPause = true
+	decision.ThresholdPercent = winnerThreshold
 	decision.Window = winner.window
 	decision.Scope = winner.scope
 	decision.UsedPercent = winner.usedPercent
@@ -83,13 +95,18 @@ func evaluateAnthropicFableSchedulingThreshold(account *Account, thresholds map[
 	}
 
 	decision.Platform = PlatformAnthropic
-	threshold, ok := resolveEffectiveAccountSchedulingThreshold(account, thresholds, PlatformAnthropic)
+	baseThreshold, baseOK := resolveEffectiveAccountSchedulingThreshold(account, thresholds, PlatformAnthropic)
+	decision.ThresholdPercent = baseThreshold
+	candidate := anthropicFableThresholdCandidate(account)
+	if candidate == nil {
+		return decision
+	}
+	// Fable 7d_oi 属于周窗口，遵循 7d 窗口级覆盖。
+	threshold, ok := resolveWindowSchedulingThreshold(account, candidate.window, baseThreshold, baseOK)
 	decision.ThresholdPercent = threshold
 	if !ok || threshold >= 100 {
 		return decision
 	}
-
-	candidate := anthropicFableThresholdCandidate(account)
 	if !candidateMatchesThreshold(candidate, threshold, now) {
 		return decision
 	}
@@ -121,14 +138,49 @@ func resolveEffectiveAccountSchedulingThreshold(account *Account, thresholds map
 }
 
 func accountSchedulingThresholdOverride(account *Account) (int, bool) {
-	if account == nil || len(account.Credentials) == 0 {
+	return accountSchedulingThresholdCredential(account, accountSchedulingThresholdCredentialKey)
+}
+
+func accountSchedulingThresholdCredential(account *Account, key string) (int, bool) {
+	if account == nil || len(account.Credentials) == 0 || key == "" {
 		return 0, false
 	}
-	raw, ok := account.Credentials[accountSchedulingThresholdCredentialKey]
+	raw, ok := account.Credentials[key]
 	if !ok {
 		return 0, false
 	}
 	return parseAccountSchedulingThresholdValue(raw)
+}
+
+// schedulingThresholdWindowCredentialKey 将用量窗口映射到窗口级覆盖的凭据键：
+// 5h 会话窗口 → _5h；7d / 7d_oi / weekly 周窗口 → _7d；其余窗口无窗口级覆盖。
+func schedulingThresholdWindowCredentialKey(window string) string {
+	switch window {
+	case "5h":
+		return accountSchedulingThreshold5hCredentialKey
+	case "7d", "7d_oi", "weekly":
+		return accountSchedulingThreshold7dCredentialKey
+	default:
+		return ""
+	}
+}
+
+// resolveWindowSchedulingThreshold 返回某个窗口的生效阈值：窗口级覆盖优先，
+// 否则回落到账号级统一阈值 / 平台默认值。
+func resolveWindowSchedulingThreshold(account *Account, window string, baseThreshold int, baseOK bool) (int, bool) {
+	if threshold, ok := accountSchedulingThresholdCredential(account, schedulingThresholdWindowCredentialKey(window)); ok {
+		return threshold, true
+	}
+	return baseThreshold, baseOK
+}
+
+func accountHasWindowSchedulingThresholdOverride(account *Account) bool {
+	for _, key := range []string{accountSchedulingThreshold5hCredentialKey, accountSchedulingThreshold7dCredentialKey} {
+		if _, ok := accountSchedulingThresholdCredential(account, key); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func parseAccountSchedulingThresholdValue(raw any) (int, bool) {
@@ -399,21 +451,28 @@ func cnThresholdCandidate(extra map[string]any, provider, window string) *accoun
 	}
 }
 
-func pickLatestResetSchedulingCandidate(candidates []*accountSchedulingThresholdCandidate, threshold int, now time.Time) *accountSchedulingThresholdCandidate {
-	var winner *accountSchedulingThresholdCandidate
+// pickLatestResetSchedulingCandidate 按各窗口自身的生效阈值筛选命中的候选，
+// 返回重置时间最晚的那个及其阈值。thresholdFor 返回 false 或 >=100 表示该窗口不停调。
+func pickLatestResetSchedulingCandidate(candidates []*accountSchedulingThresholdCandidate, thresholdFor func(window string) (int, bool), now time.Time) (*accountSchedulingThresholdCandidate, int) {
+	var (
+		winner          *accountSchedulingThresholdCandidate
+		winnerThreshold int
+	)
 	for _, candidate := range candidates {
-		if !candidateMatchesThreshold(candidate, threshold, now) {
+		if candidate == nil {
 			continue
 		}
-		if winner == nil || candidate.until.After(*winner.until) {
-			winner = candidate
+		threshold, ok := thresholdFor(candidate.window)
+		if !ok || threshold >= 100 || !candidateMatchesThreshold(candidate, threshold, now) {
 			continue
 		}
-		if winner.until.Equal(*candidate.until) && candidate.usedPercent > winner.usedPercent {
+		if winner == nil || candidate.until.After(*winner.until) ||
+			(winner.until.Equal(*candidate.until) && candidate.usedPercent > winner.usedPercent) {
 			winner = candidate
+			winnerThreshold = threshold
 		}
 	}
-	return winner
+	return winner, winnerThreshold
 }
 
 func candidateMatchesThreshold(candidate *accountSchedulingThresholdCandidate, threshold int, now time.Time) bool {
