@@ -185,3 +185,10 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
 }
+
+func TestCompareVersionsCustomRevision(t *testing.T) {
+	require.Equal(t, -1, compareVersions("0.2.15-custom.1", "0.2.15-custom.2"))
+	require.Equal(t, 1, compareVersions("0.2.15-custom.10", "0.2.15-custom.9"))
+	require.Equal(t, 0, compareVersions("v0.2.15-custom.1", "0.2.15-custom.1"))
+	require.Equal(t, -1, compareVersions("0.2.14-custom.3", "0.2.15-custom.1"))
+}

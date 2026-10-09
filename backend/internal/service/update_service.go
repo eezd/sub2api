@@ -30,7 +30,8 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	// fork 的在线更新/回滚只能取 fork 自己的 Release，避免被上游版本覆盖。
+	githubRepo = "eezd/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -642,7 +643,7 @@ func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
-	for i := 0; i < 3; i++ {
+	for i := range currentParts {
 		if currentParts[i] < latestParts[i] {
 			return -1
 		}
@@ -653,13 +654,20 @@ func compareVersions(current, latest string) int {
 	return 0
 }
 
-func parseVersion(v string) [3]int {
+// parseVersion 返回 [major, minor, patch, customRevision]。
+// fork 版本形如 0.2.15-custom.N，custom 修订号参与比较；其他后缀视为修订号 0。
+func parseVersion(v string) [4]int {
 	v = strings.TrimPrefix(v, "v")
+	result := [4]int{}
 	if idx := strings.IndexByte(v, '-'); idx != -1 {
+		if revision, ok := strings.CutPrefix(v[idx+1:], "custom."); ok {
+			if parsed, err := strconv.Atoi(revision); err == nil {
+				result[3] = parsed
+			}
+		}
 		v = v[:idx]
 	}
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
 	for i := 0; i < len(parts) && i < 3; i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
 			result[i] = parsed
