@@ -158,7 +158,7 @@ func schedulingThresholdWindowCredentialKey(window string) string {
 	switch window {
 	case "5h":
 		return accountSchedulingThreshold5hCredentialKey
-	case "7d", "7d_oi", "weekly":
+	case "7d", "7d_oi":
 		return accountSchedulingThreshold7dCredentialKey
 	default:
 		return ""
@@ -177,10 +177,13 @@ func resolveWindowSchedulingThreshold(account *Account, window string, baseThres
 	return baseThreshold, baseOK
 }
 
-// supportsWindowSchedulingThresholdOverride 窗口级覆盖仅对 Anthropic 账号生效；
-// OpenAI 已有独立的 auto_pause_5h/7d_threshold 自动暂停，避免两套机制叠加。
+// supportsWindowSchedulingThresholdOverride 窗口级覆盖仅对 Anthropic OAuth / Setup Token
+// 账号生效：只有它们会收到 5h/7d 订阅用量响应头；OpenAI 已有独立的
+// auto_pause_5h/7d_threshold 自动暂停，避免两套机制叠加。
 func supportsWindowSchedulingThresholdOverride(account *Account) bool {
-	return account != nil && strings.EqualFold(strings.TrimSpace(account.Platform), PlatformAnthropic)
+	return account != nil &&
+		strings.EqualFold(strings.TrimSpace(account.Platform), PlatformAnthropic) &&
+		account.IsOAuth()
 }
 
 func accountHasWindowSchedulingThresholdOverride(account *Account) bool {

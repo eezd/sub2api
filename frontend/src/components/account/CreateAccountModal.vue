@@ -3012,6 +3012,13 @@
             />
           </div>
         </div>
+
+        <!-- 按窗口停调阈值（5h / 周），留空沿用平台设置 -->
+        <AccountSchedulingWindowThresholdInputs
+          v-model:threshold5h="schedulingThreshold5h"
+          v-model:threshold7d="schedulingThreshold7d"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        />
       </div>
 
       <div>
@@ -3987,6 +3994,12 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import AccountSchedulingWindowThresholdInputs from '@/components/account/AccountSchedulingWindowThresholdInputs.vue'
+import {
+  applySchedulingWindowThresholdsForCreate,
+  supportsSchedulingWindowThresholds,
+  type SchedulingWindowThresholdInput
+} from '@/components/account/schedulingWindowThresholds'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
 import {
   applyAntigravityProjectID,
@@ -4555,6 +4568,18 @@ const vertexClientEmail = ref('')
 const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
 const tempUnschedEnabled = ref(false)
+// 按窗口停调阈值（仅 Anthropic OAuth / Setup Token），空值表示沿用平台设置
+const schedulingThreshold5h = ref<SchedulingWindowThresholdInput>('')
+const schedulingThreshold7d = ref<SchedulingWindowThresholdInput>('')
+const applySchedulingWindowThresholds = (credentials: Record<string, unknown>, type: string) => {
+  if (!supportsSchedulingWindowThresholds(form.platform, type)) {
+    return
+  }
+  applySchedulingWindowThresholdsForCreate(credentials, {
+    threshold5h: schedulingThreshold5h.value,
+    threshold7d: schedulingThreshold7d.value
+  })
+}
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-openai-compact-model-mapping')
@@ -5460,6 +5485,8 @@ const resetForm = () => {
   vertexClientEmail.value = ''
   vertexLocation.value = 'global'
   tempUnschedEnabled.value = false
+  schedulingThreshold5h.value = ''
+  schedulingThreshold7d.value = ''
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
   geminiTierGoogleOne.value = 'google_one_free'
@@ -7039,6 +7066,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+    applySchedulingWindowThresholds(credentials, addMethod.value)
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
   } catch (error: any) {
     oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
@@ -7166,6 +7194,7 @@ const handleCookieAuth = async (sessionKey: string) => {
 
         const credentials: Record<string, unknown> = { ...tokenInfo }
         applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+        applySchedulingWindowThresholds(credentials, addMethod.value)
         if (tempUnschedEnabled.value) {
           credentials.temp_unschedulable_enabled = true
           credentials.temp_unschedulable_rules = tempUnschedPayload

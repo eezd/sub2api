@@ -529,7 +529,7 @@ export default {
       accountSchedulingThreshold7d: '周窗口阈值',
       accountSchedulingWindowThresholdPlaceholder: '留空沿用统一阈值',
       accountSchedulingWindowThresholdOverrideHint:
-        '1-100，仅作用于对应用量窗口，优先于上方统一阈值与平台设置；100 表示该窗口不停调。例如 5 小时填 100、周填 80：5 小时不限，周用量达到 80% 后停调至周重置。',
+        '1-100，仅作用于对应用量窗口，优先于账号统一阈值与平台设置；100 表示该窗口不停调。例如 5 小时填 100、周填 80：5 小时不限，周用量达到 80% 后停调至周重置。',
       status: {
         active: '正常',
         inactive: '停用',

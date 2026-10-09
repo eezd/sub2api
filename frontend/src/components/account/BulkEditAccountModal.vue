@@ -1394,6 +1394,39 @@
         </div>
       </div>
 
+      <!-- 按窗口停调阈值（仅全部为 Anthropic OAuth/SetupToken 时显示） -->
+      <div v-if="allAnthropicOAuthOrSetupToken" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-scheduling-window-threshold-label"
+            class="input-label mb-0"
+            for="bulk-edit-scheduling-window-threshold-enabled"
+          >
+            {{ t('admin.accounts.accountSchedulingWindowThresholdOverride') }}
+          </label>
+          <input
+            v-model="enableSchedulingWindowThresholds"
+            id="bulk-edit-scheduling-window-threshold-enabled"
+            data-testid="bulk-edit-scheduling-window-threshold-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-scheduling-window-threshold-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-scheduling-window-threshold-body"
+          :class="!enableSchedulingWindowThresholds && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-scheduling-window-threshold-label"
+        >
+          <AccountSchedulingWindowThresholdInputs
+            v-model:threshold5h="bulkSchedulingThreshold5h"
+            v-model:threshold7d="bulkSchedulingThreshold7d"
+            :show-title="false"
+          />
+        </div>
+      </div>
+
       <!-- Groups -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1499,6 +1532,11 @@ import {
   getPresetMappingsByPlatform
 } from '@/composables/useModelWhitelist'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import AccountSchedulingWindowThresholdInputs from '@/components/account/AccountSchedulingWindowThresholdInputs.vue'
+import {
+  applySchedulingWindowThresholdsPatch,
+  type SchedulingWindowThresholdInput
+} from '@/components/account/schedulingWindowThresholds'
 import {
   buildHeaderOverridesObject,
   isHeaderOverrideCapable,
@@ -1671,6 +1709,10 @@ const enableCodexCLIOnlyAppServer = ref(false)
 const enableOpenAICompactMode = ref(false)
 const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
+// 按窗口停调阈值：勾选后统一写入（留空写 null 清除账号覆盖）
+const enableSchedulingWindowThresholds = ref(false)
+const bulkSchedulingThreshold5h = ref<SchedulingWindowThresholdInput>('')
+const bulkSchedulingThreshold7d = ref<SchedulingWindowThresholdInput>('')
 
 // State - field values
 const submitting = ref(false)
@@ -2148,6 +2190,15 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     umqExtra.user_msg_queue_enabled = false  // 清理旧字段（JSONB merge）
   }
 
+  // 按窗口停调阈值：仅全部为 Anthropic OAuth/SetupToken 时可用；后端 JSONB merge，留空显式写 null 清除
+  if (enableSchedulingWindowThresholds.value && allAnthropicOAuthOrSetupToken.value) {
+    applySchedulingWindowThresholdsPatch(credentials, {
+      threshold5h: bulkSchedulingThreshold5h.value,
+      threshold7d: bulkSchedulingThreshold7d.value
+    })
+    credentialsChanged = true
+  }
+
   if (credentialsChanged) {
     updates.credentials = credentials
   }
@@ -2228,6 +2279,7 @@ const handleSubmit = async () => {
     enableOpenAICompactMode.value ||
     enableOpenAICompactModelMapping.value ||
     enableRpmLimit.value ||
+    (enableSchedulingWindowThresholds.value && allAnthropicOAuthOrSetupToken.value) ||
     userMsgQueueMode.value !== null
 
   if (!hasAnyFieldEnabled) {
@@ -2380,6 +2432,9 @@ watch(
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
+      enableSchedulingWindowThresholds.value = false
+      bulkSchedulingThreshold5h.value = ''
+      bulkSchedulingThreshold7d.value = ''
 
       // Reset all values
       baseUrl.value = ''

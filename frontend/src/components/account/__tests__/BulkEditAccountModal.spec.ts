@@ -1003,4 +1003,34 @@ describe('BulkEditAccountModal', () => {
       }
     })
   })
+
+  it('全部为 Anthropic OAuth/SetupToken 时可批量设置按窗口停调阈值，留空写 null', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['oauth', 'setup-token']
+    })
+
+    await wrapper.get('[data-testid="bulk-edit-scheduling-window-threshold-enabled"]').setValue(true)
+    await wrapper.get('[data-testid="account-scheduling-threshold-7d"]').setValue('80')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        account_scheduling_threshold_5h: null,
+        account_scheduling_threshold_7d: 80
+      }
+    })
+  })
+
+  it('含 Anthropic API Key 或其他平台时不展示按窗口停调阈值', () => {
+    for (const props of [
+      { selectedPlatforms: ['anthropic'], selectedTypes: ['oauth', 'apikey'] },
+      { selectedPlatforms: ['openai'], selectedTypes: ['oauth'] }
+    ]) {
+      const wrapper = mountModal(props)
+      expect(wrapper.find('[data-testid="bulk-edit-scheduling-window-threshold-enabled"]').exists()).toBe(false)
+    }
+  })
 })

@@ -350,7 +350,7 @@ describe('EditAccountModal', () => {
   })
 
   it('loads and saves per-window scheduling threshold overrides', async () => {
-    const account = { ...buildAccount(), platform: 'anthropic', name: 'Claude Key' } as any
+    const account = { ...buildAccount(), platform: 'anthropic', type: 'oauth', name: 'Claude OAuth' } as any
     account.credentials = { ...account.credentials, account_scheduling_threshold_5h: 100 }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
@@ -371,8 +371,9 @@ describe('EditAccountModal', () => {
     expect(credentials?.account_scheduling_threshold_7d).toBe(80)
   })
 
-  it('shows per-window scheduling threshold overrides only for Anthropic accounts', () => {
-    for (const account of [buildAccount(), buildGrokAPIKeyAccount()]) {
+  it('shows per-window scheduling threshold overrides only for Anthropic OAuth/Setup Token accounts', () => {
+    const anthropicAPIKey = { ...buildAccount(), platform: 'anthropic', type: 'apikey' } as any
+    for (const account of [buildAccount(), buildGrokAPIKeyAccount(), anthropicAPIKey]) {
       const wrapper = mountModal(account)
       expect(wrapper.find('[data-testid="account-scheduling-window-threshold-section"]').exists()).toBe(false)
     }

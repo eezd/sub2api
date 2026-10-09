@@ -539,6 +539,7 @@ func TestEvaluateAccountSchedulingThreshold_AnthropicWindowOverridesWeeklyOnly(t
 	newAccount := func(session, weekly float64) *Account {
 		return &Account{
 			Platform:         PlatformAnthropic,
+			Type:             AccountTypeOAuth,
 			SessionWindowEnd: &sessionEnd,
 			Credentials: map[string]any{
 				accountSchedulingThreshold5hCredentialKey: 100,
@@ -573,6 +574,7 @@ func TestEvaluateAccountSchedulingThreshold_WindowOverrideWorksWithoutBaseThresh
 	sessionEnd := now.Add(2 * time.Hour)
 	account := &Account{
 		Platform:         PlatformAnthropic,
+		Type:             AccountTypeOAuth,
 		SessionWindowEnd: &sessionEnd,
 		Credentials:      map[string]any{accountSchedulingThreshold7dCredentialKey: "80"},
 		Extra: map[string]any{
@@ -626,6 +628,7 @@ func TestEvaluateAccountSchedulingThreshold_UnsetWindowFallsBackToAccountOverrid
 	sessionEnd := now.Add(3 * time.Hour)
 	account := &Account{
 		Platform:         PlatformAnthropic,
+		Type:             AccountTypeOAuth,
 		SessionWindowEnd: &sessionEnd,
 		Credentials: map[string]any{
 			accountSchedulingThresholdCredentialKey:   70,
@@ -650,6 +653,7 @@ func TestEvaluateAnthropicFableSchedulingThreshold_UsesWeeklyWindowOverride(t *t
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 	account := &Account{
 		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{accountSchedulingThreshold7dCredentialKey: 80},
 		Extra: map[string]any{
 			"passive_usage_7d_oi_utilization": 0.85,
@@ -662,4 +666,30 @@ func TestEvaluateAnthropicFableSchedulingThreshold_UsesWeeklyWindowOverride(t *t
 
 	account.Credentials[accountSchedulingThreshold7dCredentialKey] = 100
 	require.False(t, evaluateAnthropicFableSchedulingThreshold(account, map[string]int{PlatformAnthropic: 50}, now).ShouldPause)
+}
+
+// 窗口级覆盖仅限 Anthropic OAuth / Setup Token：apikey 账号即使存有该字段也忽略。
+func TestEvaluateAccountSchedulingThreshold_AnthropicAPIKeyIgnoresWindowOverride(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	sessionEnd := now.Add(2 * time.Hour)
+	account := &Account{
+		Platform:         PlatformAnthropic,
+		Type:             AccountTypeAPIKey,
+		SessionWindowEnd: &sessionEnd,
+		Credentials:      map[string]any{accountSchedulingThreshold7dCredentialKey: 80},
+		Extra: map[string]any{
+			"session_window_utilization":   0.5,
+			"passive_usage_7d_utilization": 0.85,
+			"passive_usage_7d_reset":       now.Add(72 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	require.False(t, EvaluateAccountSchedulingThreshold(account, nil, now).ShouldPause)
+
+	account.Type = AccountTypeSetupToken
+	decision := EvaluateAccountSchedulingThreshold(account, nil, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, "7d", decision.Window)
+	require.Equal(t, 80, decision.ThresholdPercent)
 }

@@ -1609,41 +1609,13 @@
           />
           <p class="input-hint">{{ t('admin.accounts.accountSchedulingThresholdOverrideDisabledHint') }}</p>
         </div>
-        <!-- 按窗口覆盖：留空沿用上方统一阈值 / 平台设置 -->
-        <div
+        <!-- 按窗口覆盖：留空沿用上方统一阈值 / 平台设置（仅 Anthropic OAuth / Setup Token） -->
+        <AccountSchedulingWindowThresholdInputs
           v-if="supportsAccountSchedulingWindowThresholdOverride"
+          v-model:threshold5h="accountSchedulingThreshold5hValue"
+          v-model:threshold7d="accountSchedulingThreshold7dValue"
           class="mt-3"
-          data-testid="account-scheduling-window-threshold-section"
-        >
-          <label class="input-label">{{ t('admin.accounts.accountSchedulingWindowThresholdOverride') }}</label>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="input-label text-xs">{{ t('admin.accounts.accountSchedulingThreshold5h') }}</label>
-              <input
-                v-model="accountSchedulingThreshold5hValue"
-                data-testid="account-scheduling-threshold-5h"
-                type="number"
-                min="1"
-                max="100"
-                class="input"
-                :placeholder="t('admin.accounts.accountSchedulingWindowThresholdPlaceholder')"
-              />
-            </div>
-            <div>
-              <label class="input-label text-xs">{{ t('admin.accounts.accountSchedulingThreshold7d') }}</label>
-              <input
-                v-model="accountSchedulingThreshold7dValue"
-                data-testid="account-scheduling-threshold-7d"
-                type="number"
-                min="1"
-                max="100"
-                class="input"
-                :placeholder="t('admin.accounts.accountSchedulingWindowThresholdPlaceholder')"
-              />
-            </div>
-          </div>
-          <p class="input-hint">{{ t('admin.accounts.accountSchedulingWindowThresholdOverrideHint') }}</p>
-        </div>
+        />
       </div>
 
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
@@ -3228,6 +3200,13 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import AccountSchedulingWindowThresholdInputs from '@/components/account/AccountSchedulingWindowThresholdInputs.vue'
+import {
+  applySchedulingWindowThresholdsPatch,
+  loadSchedulingWindowThresholds,
+  supportsSchedulingWindowThresholds,
+  type SchedulingWindowThresholdInput
+} from '@/components/account/schedulingWindowThresholds'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import {
   applyAntigravityProjectID,
@@ -3734,17 +3713,13 @@ const accountSchedulingThresholdOverrideEnabled = ref(false)
 const accountSchedulingThresholdOverrideValue = ref(100)
 const ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY = 'account_scheduling_threshold'
 // 按窗口覆盖（5h 会话 / 7d 周），空字符串表示未设置、沿用统一阈值
-const ACCOUNT_SCHEDULING_WINDOW_THRESHOLD_CREDENTIAL_KEYS = {
-  '5h': 'account_scheduling_threshold_5h',
-  '7d': 'account_scheduling_threshold_7d'
-} as const
-const accountSchedulingThreshold5hValue = ref<string | number>('')
-const accountSchedulingThreshold7dValue = ref<string | number>('')
+const accountSchedulingThreshold5hValue = ref<SchedulingWindowThresholdInput>('')
+const accountSchedulingThreshold7dValue = ref<SchedulingWindowThresholdInput>('')
 const supportsAccountSchedulingThresholdOverride = computed(() =>
   supportsAccountSchedulingThresholdOverridePlatform(props.account?.platform)
 )
 const supportsAccountSchedulingWindowThresholdOverride = computed(() =>
-  supportsAccountSchedulingWindowThresholdOverridePlatform(props.account?.platform)
+  supportsSchedulingWindowThresholds(props.account?.platform, props.account?.type)
 )
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-model-mapping')
@@ -4896,11 +4871,6 @@ function supportsAccountSchedulingThresholdOverridePlatform(platform: Account['p
   return platform === 'openai' || platform === 'anthropic' || platform === 'grok'
 }
 
-// 窗口级覆盖仅用于 Anthropic；OpenAI 已有独立的 5h/7d 自动暂停阈值
-function supportsAccountSchedulingWindowThresholdOverridePlatform(platform: Account['platform'] | undefined) {
-  return platform === 'anthropic'
-}
-
 function normalizeAccountSchedulingThresholdOverride(value: unknown): number | null {
   if (value === null || value === undefined || value === '') {
     return null
@@ -4924,13 +4894,9 @@ function loadAccountSchedulingThresholdOverride(
   platform: Account['platform'] | undefined,
   credentials: Record<string, unknown> | undefined
 ) {
-  const supportsWindows = supportsAccountSchedulingWindowThresholdOverridePlatform(platform)
-  accountSchedulingThreshold5hValue.value = supportsWindows
-    ? normalizeAccountSchedulingThresholdOverride(credentials?.[ACCOUNT_SCHEDULING_WINDOW_THRESHOLD_CREDENTIAL_KEYS['5h']]) ?? ''
-    : ''
-  accountSchedulingThreshold7dValue.value = supportsWindows
-    ? normalizeAccountSchedulingThresholdOverride(credentials?.[ACCOUNT_SCHEDULING_WINDOW_THRESHOLD_CREDENTIAL_KEYS['7d']]) ?? ''
-    : ''
+  const windows = loadSchedulingWindowThresholds(credentials)
+  accountSchedulingThreshold5hValue.value = windows.threshold5h
+  accountSchedulingThreshold7dValue.value = windows.threshold7d
   if (!supportsAccountSchedulingThresholdOverridePlatform(platform)) {
     accountSchedulingThresholdOverrideEnabled.value = false
     accountSchedulingThresholdOverrideValue.value = 100
@@ -4943,41 +4909,22 @@ function loadAccountSchedulingThresholdOverride(
   accountSchedulingThresholdOverrideValue.value = value ?? 100
 }
 
-// 窗口级覆盖：留空即删除（写 null），有值则钳制到 1-100；与当前值相同则不产生补丁
-const applyAccountSchedulingWindowThresholdPatch = (
-  credentials: Record<string, unknown>,
-  currentCredentials: Record<string, unknown>,
-  platform: Account['platform'] | undefined
-) => {
-  if (!supportsAccountSchedulingWindowThresholdOverridePlatform(platform)) {
-    return
-  }
-  const entries: Array<[string, string | number]> = [
-    [ACCOUNT_SCHEDULING_WINDOW_THRESHOLD_CREDENTIAL_KEYS['5h'], accountSchedulingThreshold5hValue.value],
-    [ACCOUNT_SCHEDULING_WINDOW_THRESHOLD_CREDENTIAL_KEYS['7d'], accountSchedulingThreshold7dValue.value]
-  ]
-  for (const [key, raw] of entries) {
-    const current = normalizeAccountSchedulingThresholdOverride(currentCredentials[key])
-    const isEmpty = raw === '' || raw === null || raw === undefined
-    if (isEmpty) {
-      if (current !== null) {
-        credentials[key] = null
-      }
-      continue
-    }
-    const next = clampAccountSchedulingThresholdOverride(raw)
-    if (current !== next) {
-      credentials[key] = next
-    }
-  }
-}
-
 const applyAccountSchedulingThresholdOverridePatch = (
   credentials: Record<string, unknown>,
   currentCredentials: Record<string, unknown>,
   platform: Account['platform'] | undefined = props.account?.platform
 ) => {
-  applyAccountSchedulingWindowThresholdPatch(credentials, currentCredentials, platform)
+  // 窗口级覆盖仅 Anthropic OAuth / Setup Token；留空写 null 清除，与当前值相同则不产生补丁
+  if (supportsAccountSchedulingWindowThresholdOverride.value) {
+    applySchedulingWindowThresholdsPatch(
+      credentials,
+      {
+        threshold5h: accountSchedulingThreshold5hValue.value,
+        threshold7d: accountSchedulingThreshold7dValue.value
+      },
+      currentCredentials
+    )
+  }
   if (!supportsAccountSchedulingThresholdOverridePlatform(platform)) {
     return
   }
