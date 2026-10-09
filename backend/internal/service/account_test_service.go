@@ -2844,16 +2844,12 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
-	seenMessageStop := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if seenMessageStop {
-					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-					return nil
-				}
+				// message_stop 分支会提前返回，走到 EOF 说明流被截断。
 				return s.sendErrorAndEnd(c, "Claude stream ended before message_stop")
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
@@ -2866,10 +2862,6 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
-			if seenMessageStop {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
-			}
 			return s.sendErrorAndEnd(c, "Claude stream ended before message_stop")
 		}
 
@@ -2894,7 +2886,6 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
-			seenMessageStop = true
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "error":

@@ -49,7 +49,9 @@ func TestRunBuildsDeterministicSignedPackage(t *testing.T) {
 	require.Equal(t, defaultPublisherKeyID, signed.KeyID)
 	signatureBytes, err := base64.StdEncoding.DecodeString(signed.Signature)
 	require.NoError(t, err)
-	require.True(t, ed25519.Verify(privateKey.Public().(ed25519.PublicKey), entries["manifest.json"], signatureBytes))
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	require.True(t, ok)
+	require.True(t, ed25519.Verify(publicKey, entries["manifest.json"], signatureBytes))
 
 	var packaged manifest
 	require.NoError(t, json.Unmarshal(entries["manifest.json"], &packaged))

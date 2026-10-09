@@ -347,7 +347,7 @@ func parseAccountTestSSEOutput(body string) (responseText, errorMessage string) 
 		}
 		switch event.Type {
 		case "content":
-			text.WriteString(event.Text)
+			_, _ = text.WriteString(event.Text)
 		case "error":
 			errorMessage = event.Error
 		}

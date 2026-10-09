@@ -93,10 +93,13 @@ func TestNodePortsStayStableAndAreNeverReused(t *testing.T) {
 	a, b, c := "http://u:p@127.0.0.1:18001", "http://u:p@127.0.0.1:18002", "http://u:p@127.0.0.1:18003"
 
 	applyDynamic(t, m, a, b)
-	removedName := m.saved.Nodes[0]["name"].(string) // dynamic nodes keep input order
+	removedName, ok := m.saved.Nodes[0]["name"].(string) // dynamic nodes keep input order
+	require.True(t, ok)
 	first := statusNodePorts(t, m)
 	require.Len(t, first, 2)
-	require.Equal(t, map[string]int{removedName: nodePortBase, m.saved.Nodes[1]["name"].(string): nodePortBase + 1}, m.saved.NodePorts)
+	keptName, ok := m.saved.Nodes[1]["name"].(string)
+	require.True(t, ok)
+	require.Equal(t, map[string]int{removedName: nodePortBase, keptName: nodePortBase + 1}, m.saved.NodePorts)
 
 	applyDynamic(t, m, b, a)
 	require.Equal(t, first, statusNodePorts(t, m), "re-applying the same nodes keeps their ports")
@@ -145,7 +148,8 @@ func TestNodePortsStayStableAndAreNeverReused(t *testing.T) {
 func TestDisabledNodeListenerRejects(t *testing.T) {
 	m, listeners := runningKernelManager(t)
 	applyDynamic(t, m, "http://u:p@127.0.0.1:18001", "http://u:p@127.0.0.1:18002")
-	target := m.saved.Nodes[0]["name"].(string)
+	target, ok := m.saved.Nodes[0]["name"].(string)
+	require.True(t, ok)
 	port := m.saved.NodePorts[target]
 
 	require.NoError(t, m.run(context.Background(), "disable/"+target, m.saved))
@@ -196,7 +200,9 @@ func TestStartRejectsOccupiedNodePort(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer func() { _ = occupied.Close() }()
-	port := occupied.Addr().(*net.TCPAddr).Port
+	tcpAddr, ok := occupied.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	port := tcpAddr.Port
 	require.Contains(t, kernelPorts(map[string]int{"node-a": port}), "127.0.0.1:"+strconv.Itoa(port))
 
 	m := New(t.TempDir())
@@ -212,7 +218,7 @@ func TestHotReloadRejectsOccupiedNewPortBeforeController(t *testing.T) {
 	old := m.saved
 	occupied, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", nodePortBase+1))
 	require.NoError(t, err)
-	defer occupied.Close()
+	defer func() { _ = occupied.Close() }()
 	err = m.run(context.Background(), "apply_dynamic", saved{DynamicProxies: []string{
 		"http://u:p@127.0.0.1:18001", "http://u:p@127.0.0.1:18002",
 	}})

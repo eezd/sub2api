@@ -80,7 +80,7 @@ func (r *accountDegradationCheckBatchRepository) CreateBatch(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var id int64
 	err = tx.QueryRowContext(ctx, `INSERT INTO account_degradation_check_batches(check_type,status,created_by,request_key,request_hash) VALUES($1,'pending',$2,$3,$4) ON CONFLICT(created_by,request_key) DO NOTHING RETURNING id`, b.CheckType, b.CreatedBy, b.RequestKey, b.RequestHash).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -128,7 +128,7 @@ func (r *accountDegradationCheckBatchRepository) ListBatches(ctx context.Context
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]*service.AccountDegradationCheckBatch, 0)
 	for rows.Next() {
 		b, e := scanDegradationBatch(rows)
@@ -152,7 +152,7 @@ func (r *accountDegradationCheckBatchRepository) ListItems(ctx context.Context, 
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]*service.AccountDegradationCheckBatchItem, 0)
 	for rows.Next() {
 		i, e := scanDegradationItem(rows, false)
@@ -187,7 +187,7 @@ func (r *accountDegradationCheckBatchRepository) ClaimNextItem(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockDegradationClaimAdmission(ctx, tx); err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (r *accountDegradationCheckBatchRepository) Heartbeat(ctx context.Context, 
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// Lock the parent first. Claim admission skips locked parents, so a slow
 	// mutation in this batch cannot make this heartbeat monopolize the
 	// cluster-wide admission lock and expire unrelated claims.
@@ -289,7 +289,7 @@ func (r *accountDegradationCheckBatchRepository) UpdateProgress(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	canceled, err := lockDegradationBatch(ctx, tx, batchID)
 	if err != nil {
 		return err
@@ -397,7 +397,7 @@ func (r *accountDegradationCheckBatchRepository) FinishItem(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	canceled, err := lockDegradationBatch(ctx, tx, batchID)
 	if err != nil {
 		return nil, err
@@ -445,7 +445,7 @@ func (r *accountDegradationCheckBatchRepository) CancelBatch(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err = lockDegradationBatch(ctx, tx, batchID); err != nil {
 		return nil, err
 	}
@@ -496,7 +496,7 @@ func (r *accountDegradationCheckBatchRepository) interruptOneExpiredItem(ctx con
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var batchID int64
 	err = tx.QueryRowContext(ctx, `SELECT b.id FROM account_degradation_check_batches b WHERE EXISTS(SELECT 1 FROM account_degradation_check_batch_items i WHERE i.batch_id=b.id AND i.status='running' AND i.lease_expires_at<=clock_timestamp()) ORDER BY b.id LIMIT 1 FOR UPDATE OF b SKIP LOCKED`).Scan(&batchID)
 	if errors.Is(err, sql.ErrNoRows) {

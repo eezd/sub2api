@@ -259,7 +259,10 @@ func TestReadErrorClassificationUsesCloseStateAtReadReturn(t *testing.T) {
 			resp := &http.Response{StatusCode: 200, Body: immediateErrorBody{err: tc.err}, Request: req}
 			trace.Response(resp, nil)
 			Output(ResponseContext(ctx, resp), true, true, "completed")
-			body := resp.Body.(*responseBody)
+			body, ok := resp.Body.(*responseBody)
+			if !ok {
+				t.Fatalf("unexpected body type %T", resp.Body)
+			}
 
 			c.mu.Lock()
 			readDone := make(chan struct{})

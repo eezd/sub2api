@@ -44,7 +44,7 @@ func socksFixture(t *testing.T, port int) func() {
 				continue
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				var hello [3]byte
 				if _, err := io.ReadFull(c, hello[:]); err != nil || hello != [3]byte{5, 1, 0} {
 					return

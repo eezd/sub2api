@@ -1110,7 +1110,8 @@ func TestHTTPUpstreamDoesNotFollowRedirectsByDefault(t *testing.T) {
 }
 
 func TestRedirectCheckerStripsCredentialsBeforeCrossOriginFollow(t *testing.T) {
-	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	require.True(t, ok)
 	original, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.com/start", nil)
 	require.NoError(t, err)
 	redirected, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://attacker.example/next", nil)
@@ -1135,7 +1136,8 @@ func TestPublicHostsOnlyRejectsRemoteResolvingProxy(t *testing.T) {
 }
 
 func TestDirectDialValidationRejectsLoopbackBeforeConnect(t *testing.T) {
-	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	require.True(t, ok)
 	ctx := service.WithHTTPUpstreamPublicHostsOnly(t.Context())
 
 	conn, err := upstream.dialContextWithIPValidation(ctx, "tcp", "localhost:443")

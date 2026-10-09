@@ -273,7 +273,7 @@ func TestOfficialKernelInstallation(t *testing.T) {
 	// half-bound mixed listener that blocks disable/recover reloads.
 	udpOccupied, err := net.ListenPacket("udp", "127.0.0.1:19001")
 	require.NoError(t, err)
-	defer udpOccupied.Close()
+	defer func() { _ = udpOccupied.Close() }()
 	require.NoError(t, m.run(ctx, "apply", next))
 	require.Equal(t, 2, m.Status().Nodes)
 	require.NoError(t, probeSOCKSListener(ctx, "127.0.0.1:19001"))

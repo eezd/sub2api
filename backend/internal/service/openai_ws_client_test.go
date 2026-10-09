@@ -48,7 +48,7 @@ func TestCoderOpenAIWSClientDialer_PlainWebSocketWithProfileUsesConfiguredProxy(
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			if _, _, err := conn.Read(context.Background()); err != nil {
 				return
@@ -67,7 +67,8 @@ func TestCoderOpenAIWSClientDialer_PlainWebSocketWithProfileUsesConfiguredProxy(
 	}))
 	t.Cleanup(proxy.Close)
 
-	dialer := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	dialer, ok := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	require.True(t, ok)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, _, _, err := dialer.DialWithTLS(
@@ -182,7 +183,8 @@ func TestCoderOpenAIWSClientDialer_TLSProfileTransportAndCacheIsolation(t *testi
 }
 
 func TestCoderOpenAIWSClientDialer_TLSProfileRejectsHTTP2ALPN(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	dialer, ok := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	require.True(t, ok)
 	client, err := dialer.httpClient("", &tlsfingerprint.Profile{
 		Name:          "h2",
 		ALPNProtocols: []string{"h2", "http/1.1"},
