@@ -1,9 +1,15 @@
 import type { UsageLog } from '@/types'
-import { BILLING_MODE_VIDEO } from './billingMode'
+import { BILLING_MODE_IMAGE, BILLING_MODE_VIDEO } from './billingMode'
 
 type UsageTpsRow = Partial<
-  Pick<UsageLog, 'output_tokens' | 'duration_ms' | 'first_token_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode'>
+  Pick<
+    UsageLog,
+    'output_tokens' | 'duration_ms' | 'first_token_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode' | 'request_type'
+  >
 >
+
+// 与上游运维 Token 请求统计一致：只统计文本生成类请求；未知/其他类型（如 live）不计算
+const TPS_REQUEST_TYPES = new Set(['sync', 'stream', 'ws_v2', 'cyber'])
 
 /**
  * Average output throughput (tokens/s) over the recorded request duration.
@@ -14,7 +20,8 @@ type UsageTpsRow = Partial<
  * divide the full output count by an unrelated, potentially tiny window.
  *
  * This includes waiting time and is not a measurement of model generation speed.
- * Image/video requests and records without valid output or duration are excluded.
+ * Image/video requests, non-text request types and records without valid output
+ * or duration are excluded.
  */
 export const usageOutputTps = (row: UsageTpsRow | null | undefined): number | null => {
   const outputTokens = row?.output_tokens ?? 0
@@ -22,7 +29,15 @@ export const usageOutputTps = (row: UsageTpsRow | null | undefined): number | nu
   if (!Number.isFinite(outputTokens) || !Number.isFinite(durationMs) || outputTokens <= 0 || durationMs <= 0) {
     return null
   }
-  if ((row?.image_count ?? 0) > 0 || (row?.image_output_tokens ?? 0) > 0 || row?.billing_mode === BILLING_MODE_VIDEO) {
+  if (
+    (row?.image_count ?? 0) > 0 ||
+    (row?.image_output_tokens ?? 0) > 0 ||
+    row?.billing_mode === BILLING_MODE_VIDEO ||
+    row?.billing_mode === BILLING_MODE_IMAGE
+  ) {
+    return null
+  }
+  if (row?.request_type && !TPS_REQUEST_TYPES.has(row.request_type)) {
     return null
   }
   const tps = outputTokens / (durationMs / 1000)

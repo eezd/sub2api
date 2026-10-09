@@ -50,4 +50,14 @@ describe('usageTps', () => {
     expect(usageOutputTps({ output_tokens: 4_160, duration_ms: 40_000, image_output_tokens: 4_160 })).toBeNull()
     expect(usageOutputTps({ output_tokens: 100, duration_ms: 40_000, billing_mode: 'video' })).toBeNull()
   })
+
+  it('skips image billing and non-text request types (aligned with upstream ops stats)', () => {
+    const row = { output_tokens: 1_000, duration_ms: 20_000 }
+    expect(usageOutputTps({ ...row, billing_mode: 'image' })).toBeNull()
+    for (const request_type of ['sync', 'stream', 'ws_v2', 'cyber', undefined] as const) {
+      expect(usageOutputTps({ ...row, request_type })).toBe(50)
+    }
+    expect(usageOutputTps({ ...row, request_type: 'live' as const })).toBeNull()
+    expect(usageOutputTps({ ...row, request_type: 'unknown' as const })).toBeNull()
+  })
 })
