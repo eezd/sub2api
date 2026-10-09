@@ -570,23 +570,52 @@ func TestEvaluateAccountSchedulingThreshold_WindowOverrideWorksWithoutBaseThresh
 	t.Parallel()
 
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	sessionEnd := now.Add(2 * time.Hour)
 	account := &Account{
-		Platform:    PlatformOpenAI,
-		Credentials: map[string]any{accountSchedulingThreshold7dCredentialKey: "80"},
+		Platform:         PlatformAnthropic,
+		SessionWindowEnd: &sessionEnd,
+		Credentials:      map[string]any{accountSchedulingThreshold7dCredentialKey: "80"},
 		Extra: map[string]any{
-			"codex_5h_used_percent": 99.0,
-			"codex_5h_reset_at":     now.Add(2 * time.Hour).Format(time.RFC3339),
-			"codex_7d_used_percent": 60.0,
-			"codex_7d_reset_at":     now.Add(72 * time.Hour).Format(time.RFC3339),
+			"session_window_utilization":   0.99,
+			"passive_usage_7d_utilization": 0.6,
+			"passive_usage_7d_reset":       now.Add(72 * time.Hour).Format(time.RFC3339),
 		},
 	}
 	require.False(t, EvaluateAccountSchedulingThreshold(account, nil, now).ShouldPause)
 
-	account.Extra["codex_7d_used_percent"] = 81.0
+	account.Extra["passive_usage_7d_utilization"] = 0.81
 	decision := EvaluateAccountSchedulingThreshold(account, nil, now)
 	require.True(t, decision.ShouldPause)
 	require.Equal(t, "7d", decision.Window)
 	require.Equal(t, 80, decision.ThresholdPercent)
+}
+
+// 窗口级覆盖仅限 Anthropic：OpenAI 账号即使存有该字段也忽略，只按统一阈值判断。
+func TestEvaluateAccountSchedulingThreshold_OpenAIIgnoresWindowOverride(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			accountSchedulingThreshold5hCredentialKey: 100,
+			accountSchedulingThreshold7dCredentialKey: 80,
+		},
+		Extra: map[string]any{
+			"codex_5h_used_percent": 95.0,
+			"codex_5h_reset_at":     now.Add(2 * time.Hour).Format(time.RFC3339),
+			"codex_7d_used_percent": 85.0,
+			"codex_7d_reset_at":     now.Add(72 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	// 无统一阈值时窗口覆盖不生效。
+	require.False(t, EvaluateAccountSchedulingThreshold(account, nil, now).ShouldPause)
+
+	// 平台 90：5h 的 100 覆盖被忽略，按 90 命中 5h；7d 的 80 也被忽略。
+	decision := EvaluateAccountSchedulingThreshold(account, map[string]int{PlatformOpenAI: 90}, now)
+	require.True(t, decision.ShouldPause)
+	require.Equal(t, "5h", decision.Window)
+	require.Equal(t, 90, decision.ThresholdPercent)
 }
 
 // 未设置的窗口回落到账号统一阈值。

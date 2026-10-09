@@ -4896,9 +4896,9 @@ function supportsAccountSchedulingThresholdOverridePlatform(platform: Account['p
   return platform === 'openai' || platform === 'anthropic' || platform === 'grok'
 }
 
-// 仅 OpenAI / Anthropic 同时具备 5h 与周用量窗口
+// 窗口级覆盖仅用于 Anthropic；OpenAI 已有独立的 5h/7d 自动暂停阈值
 function supportsAccountSchedulingWindowThresholdOverridePlatform(platform: Account['platform'] | undefined) {
-  return platform === 'openai' || platform === 'anthropic'
+  return platform === 'anthropic'
 }
 
 function normalizeAccountSchedulingThresholdOverride(value: unknown): number | null {

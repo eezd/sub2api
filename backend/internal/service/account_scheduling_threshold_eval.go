@@ -168,13 +168,25 @@ func schedulingThresholdWindowCredentialKey(window string) string {
 // resolveWindowSchedulingThreshold 返回某个窗口的生效阈值：窗口级覆盖优先，
 // 否则回落到账号级统一阈值 / 平台默认值。
 func resolveWindowSchedulingThreshold(account *Account, window string, baseThreshold int, baseOK bool) (int, bool) {
+	if !supportsWindowSchedulingThresholdOverride(account) {
+		return baseThreshold, baseOK
+	}
 	if threshold, ok := accountSchedulingThresholdCredential(account, schedulingThresholdWindowCredentialKey(window)); ok {
 		return threshold, true
 	}
 	return baseThreshold, baseOK
 }
 
+// supportsWindowSchedulingThresholdOverride 窗口级覆盖仅对 Anthropic 账号生效；
+// OpenAI 已有独立的 auto_pause_5h/7d_threshold 自动暂停，避免两套机制叠加。
+func supportsWindowSchedulingThresholdOverride(account *Account) bool {
+	return account != nil && strings.EqualFold(strings.TrimSpace(account.Platform), PlatformAnthropic)
+}
+
 func accountHasWindowSchedulingThresholdOverride(account *Account) bool {
+	if !supportsWindowSchedulingThresholdOverride(account) {
+		return false
+	}
 	for _, key := range []string{accountSchedulingThreshold5hCredentialKey, accountSchedulingThreshold7dCredentialKey} {
 		if _, ok := accountSchedulingThresholdCredential(account, key); ok {
 			return true

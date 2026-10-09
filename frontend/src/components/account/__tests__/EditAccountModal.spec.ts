@@ -350,8 +350,8 @@ describe('EditAccountModal', () => {
   })
 
   it('loads and saves per-window scheduling threshold overrides', async () => {
-    const account = buildAccount()
-    account.credentials.account_scheduling_threshold_5h = 100
+    const account = { ...buildAccount(), platform: 'anthropic', name: 'Claude Key' } as any
+    account.credentials = { ...account.credentials, account_scheduling_threshold_5h: 100 }
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
@@ -371,9 +371,11 @@ describe('EditAccountModal', () => {
     expect(credentials?.account_scheduling_threshold_7d).toBe(80)
   })
 
-  it('hides per-window scheduling threshold overrides for platforms without both windows', () => {
-    const wrapper = mountModal(buildGrokAPIKeyAccount())
-    expect(wrapper.find('[data-testid="account-scheduling-window-threshold-section"]').exists()).toBe(false)
+  it('shows per-window scheduling threshold overrides only for Anthropic accounts', () => {
+    for (const account of [buildAccount(), buildGrokAPIKeyAccount()]) {
+      const wrapper = mountModal(account)
+      expect(wrapper.find('[data-testid="account-scheduling-window-threshold-section"]').exists()).toBe(false)
+    }
   })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
