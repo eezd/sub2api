@@ -667,6 +667,8 @@ func (s *httpUpstreamService) shouldValidateResolvedIP() bool {
 // validatePublicHostProxyPolicy fails closed when an untrusted response URL
 // would be resolved by a configured proxy. Local IP validation cannot prove
 // what HTTP CONNECT or SOCKS5H will resolve inside the proxy's network.
+// 已知取舍：配置了代理的账号无法进行图片 URL 转 base64 回填（OpenAI images），
+// 这是为防止经代理探测内网而有意保留的限制。
 func validatePublicHostProxyPolicy(req *http.Request, proxyURL string) error {
 	if req == nil || !service.HTTPUpstreamPublicHostsOnly(req.Context()) || strings.TrimSpace(proxyURL) == "" {
 		return nil
