@@ -48,13 +48,7 @@ GET /canvas-app/version.txt
 
 ### Sub2API
 
-升级 Sub2API 上游后，在生成的工作树中运行：
-
-```bash
-node scripts/apply-sub2-infinite-canvas-integration.mjs --root <generated-root>
-```
-
-适配器遇到 marker 不匹配时应立即失败；先根据报错更新适配器和契约测试，再继续升级。
+画布接入代码已直接维护在本仓库源码中，同步 Sub2API 上游时按普通合并冲突处理。
 
 ### Infinite Canvas
 

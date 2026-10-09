@@ -4,7 +4,6 @@
 
 - Upstream license: AGPL-3.0
 - Local integration patches: `scripts/apply-infinite-canvas-patches.mjs`
-- Sub2 embedding integration: `scripts/apply-sub2-infinite-canvas-integration.mjs`
 - Deployment and upgrade guide: `docs/infinite-canvas.md`
 
 Do not commit local edits inside the submodule. Update the submodule pointer only after applying the adapter in a disposable worktree, running all checks, and reviewing the generated change.

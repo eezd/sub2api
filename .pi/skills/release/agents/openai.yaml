@@ -1,0 +1,3 @@
+interface:
+  display_name: "Sub2API Release"
+  short_description: "Cut and verify eezd/sub2api custom releases"
