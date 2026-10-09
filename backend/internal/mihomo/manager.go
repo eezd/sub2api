@@ -548,7 +548,7 @@ func probeSOCKSListener(ctx context.Context, address string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	deadline, _ := ctx.Deadline()
 	if deadline.IsZero() || deadline.After(time.Now().Add(150*time.Millisecond)) {
 		deadline = time.Now().Add(150 * time.Millisecond)
@@ -590,24 +590,41 @@ func atomicWrite(path string, b []byte, mode os.FileMode) error {
 }
 
 func (m *Manager) get(ctx context.Context, address string, limit int64, ua string) ([]byte, error) {
+	return download(ctx, m.client, address, limit, ua)
+}
+
+// download 拉取有大小上限的响应体。订阅地址可能含凭据，错误中只保留原因、不保留 URL。
+func download(ctx context.Context, client *http.Client, address string, limit int64, ua string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, errors.New("invalid download address")
 	}
 	req.Header.Set("User-Agent", ua)
-	resp, err := m.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("download failed")
+		return nil, fmt.Errorf("download failed: %w", stripURLFromError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned HTTP %d", resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil || int64(len(b)) > limit {
-		return nil, errors.New("download incomplete or too large")
+	if err != nil {
+		return nil, fmt.Errorf("download incomplete: %w", stripURLFromError(err))
+	}
+	if int64(len(b)) > limit {
+		return nil, fmt.Errorf("download exceeds %d bytes", limit)
 	}
 	return b, nil
+}
+
+// stripURLFromError 去掉 *url.Error 携带的完整请求地址，只保留底层原因。
+func stripURLFromError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err
+	}
+	return err
 }
 
 func (m *Manager) getViaProxy(ctx context.Context, address string, limit int64, ua, proxyAddress string) ([]byte, error) {
@@ -630,24 +647,7 @@ func (m *Manager) getViaProxy(ctx context.Context, address string, limit int64, 
 	}
 	client := &http.Client{Transport: transport, Timeout: m.client.Timeout}
 	defer client.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil {
-		return nil, errors.New("invalid download address")
-	}
-	req.Header.Set("User-Agent", ua)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, errors.New("download failed")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download returned HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil || int64(len(b)) > limit {
-		return nil, errors.New("download incomplete or too large")
-	}
-	return b, nil
+	return download(ctx, client, address, limit, ua)
 }
 
 func (m *Manager) install(ctx context.Context) error {
@@ -665,8 +665,8 @@ func (m *Manager) install(ctx context.Context) error {
 			Digest string `json:"digest"`
 		} `json:"assets"`
 	}
-	if json.Unmarshal(manifest, &release) != nil {
-		return errors.New("invalid release manifest")
+	if err = json.Unmarshal(manifest, &release); err != nil {
+		return fmt.Errorf("invalid release manifest: %w", err)
 	}
 	expected := ""
 	for _, a := range release.Assets {
@@ -695,7 +695,7 @@ func (m *Manager) install(ctx context.Context) error {
 		return errors.New("invalid kernel size")
 	}
 	if err = atomicWrite(filepath.Join(m.dir, "mihomo"), binary, 0700); err != nil {
-		return errors.New("cannot install kernel")
+		return fmt.Errorf("cannot install kernel: %w", err)
 	}
 	return nil
 }
@@ -902,7 +902,7 @@ func (m *Manager) start(ctx context.Context, path, secret string, nodePorts map[
 	}
 	if err := cmd.Start(); err != nil {
 		m.mu.Unlock()
-		return errors.New("kernel failed to start")
+		return fmt.Errorf("kernel failed to start: %w", err)
 	}
 	m.cmd = cmd
 	m.done = make(chan struct{})

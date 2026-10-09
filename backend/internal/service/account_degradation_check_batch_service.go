@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -242,6 +243,9 @@ func (s *AccountDegradationCheckBatchService) scan() {
 		return
 	}
 	if err := s.repo.InterruptExpiredItems(s.root); err != nil {
+		if s.root.Err() == nil {
+			slog.Warn("degradation batch: interrupt expired items failed", "error", err)
+		}
 		return
 	}
 	for {
@@ -252,7 +256,13 @@ func (s *AccountDegradationCheckBatchService) scan() {
 		}
 		s.mu.Unlock()
 		item, err := s.repo.ClaimNextItem(s.root)
-		if err != nil || item == nil {
+		if err != nil {
+			if s.root.Err() == nil {
+				slog.Warn("degradation batch: claim next item failed", "error", err)
+			}
+			return
+		}
+		if item == nil {
 			return
 		}
 		s.mu.Lock()
@@ -372,10 +382,14 @@ func (s *AccountDegradationCheckBatchService) execute(item *AccountDegradationCh
 			finish.ReasonCode = "timeout"
 			finish.ErrorMessage = "检测超时"
 		default:
+			// 心跳/进度写入失败：不提交结果，留给租约回收，但必须留下原因。
+			slog.Warn("degradation batch: item abandoned for lease recovery", "batch_id", item.BatchID, "item_id", item.ID, "error", cause)
 			return
 		}
 	}
 	commitCtx, commitCancel := context.WithTimeout(context.WithoutCancel(s.root), 5*time.Second)
 	defer commitCancel()
-	_, _ = s.repo.FinishItem(commitCtx, item.BatchID, item.ID, item.ClaimToken, finish)
+	if _, err := s.repo.FinishItem(commitCtx, item.BatchID, item.ID, item.ClaimToken, finish); err != nil {
+		slog.Warn("degradation batch: finish item failed", "batch_id", item.BatchID, "item_id", item.ID, "status", finish.Status, "error", err)
+	}
 }
