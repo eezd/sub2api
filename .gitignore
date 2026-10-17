@@ -200,3 +200,6 @@ issues/
 /docs/screenshots/**/*.webp
 /docs/screenshots/**/*.avif
 /docs/screenshots/**/*.svg
+
+# 本地会话交接快照
+CONTEXT.md
