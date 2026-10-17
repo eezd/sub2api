@@ -203,3 +203,7 @@ issues/
 
 # 本地会话交接快照
 CONTEXT.md
+
+# Python 字节码
+__pycache__/
+*.pyc
