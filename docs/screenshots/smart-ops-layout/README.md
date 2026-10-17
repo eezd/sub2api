@@ -1,6 +1,6 @@
 # 智能运维页面布局对比
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout)；下列文件名与验证说明保留用于追溯。
 
 截图来自本地构建的前端、仅监听本机的 mock API 和 Chrome CDP。页面使用虚构管理员与空账号列表，不含线上账号、凭据或用户数据。
 
@@ -8,8 +8,8 @@
 
 | 页面 | 修复前，2560 × 1100 | 修复后，2560 × 1100 | 修复后，390 × 1100 |
 | --- | --- | --- | --- |
-| 凭证运营 | [宽屏](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-before-desktop.png) | [宽屏](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-after-desktop.png) | [手机端](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-after-mobile.png) |
-| 鹈鹕测智 | [宽屏](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-before-desktop.png) | [宽屏](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-after-desktop.png) | [手机端](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-after-mobile.png) |
+| 凭证运营 | [宽屏](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-before-desktop.png) | [宽屏](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-after-desktop.png) | [手机端](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/token-guard-v2-after-mobile.png) |
+| 鹈鹕测智 | [宽屏](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-before-desktop.png) | [宽屏](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-after-desktop.png) | [手机端](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/smart-ops-layout/pelican-tests-after-mobile.png) |
 
 ## 验收
 

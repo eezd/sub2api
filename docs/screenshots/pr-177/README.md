@@ -1,6 +1,6 @@
 # PR #177 页面宽度验证
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/pr-177)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/pr-177)；下列文件名与验证说明保留用于追溯。
 
 截图来自本地 Vite + Chrome，使用 mock 配置、虚构管理员和空列表，界面语言为中文。
 

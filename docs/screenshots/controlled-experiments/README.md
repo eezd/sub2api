@@ -1,6 +1,6 @@
 # 受控实验页面验收截图
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/controlled-experiments)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/controlled-experiments)；下列文件名与验证说明保留用于追溯。
 
 `synthetic-paired-report.png` 来自隔离实例，使用虚构管理员、虚构账号和合成 Responses 上游。两个账号通过资格探测，完成一题约束推理和一题工具续轮，共预留八次提交；页面显示两个配对样本及逐次证据。
 
@@ -10,4 +10,4 @@
 
 交互步骤：完整管理员打开“智能运维 → 受控实验”，保存两条原生 HTTP 通道、两道题、一次重复、八次提交预算的草案；手动启动后选择完成的记录，查看资格、评分、配对和逐次提交明细。自动验收脚本 `scripts/verify-controlled-experiments.ps1` 仅接受 loopback 的合成测试实例。
 
-[合成上游的配对实验报告](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/controlled-experiments/synthetic-paired-report.png)
+[合成上游的配对实验报告](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/controlled-experiments/synthetic-paired-report.png)

@@ -18,7 +18,7 @@ Prism 请求由适配器独立排队与限流，不参与原生账号的自动�
 
 网关日志会保留已知适配器错误码（例如 `tools_disabled`、`unsupported_request`、`model_unavailable`），不记录适配器任意错误文本。`model_unavailable` 表示账号页面缺少所选模型，不应作为参数兼容问题重放，也不会静默改成其他模型。
 
-关联 [Issue #256](https://github.com/ranxi2001/sub2api/issues/256)。账号编辑页的 Prism 开关复用现有 OpenAI OAuth 凭据，通过回环适配服务访问 Prism 网页。管理员账号测试与 HTTP `/v1/responses` 共用后端凭据获取及适配器请求函数。
+关联上游 Issue #256。账号编辑页的 Prism 开关复用现有 OpenAI OAuth 凭据，通过回环适配服务访问 Prism 网页。管理员账号测试与 HTTP `/v1/responses` 共用后端凭据获取及适配器请求函数。
 
 文本请求接受 `gpt-6.1-sol`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-6-luna` 四个精确模型 ID，以及 `low`、`medium`、`high`、`xhigh` 思考强度（省略时为 `medium`）。能否调用仍取决于该 OAuth 账号在 Prism 页面中实际可选的模型和强度；不把静态支持列表当作账号权益证明。默认保持文本模式。`gpt-6.1-sol` 可通过下述服务端试用开关启用客户端工具桥；图片、`previous_response_id`、background、structured output、compact 和原生 WebSocket 仍不支持。
 

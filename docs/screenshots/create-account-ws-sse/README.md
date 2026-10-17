@@ -1,6 +1,6 @@
 # 新增账号的 HTTP 流式 WS 加速开关
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/create-account-ws-sse)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/create-account-ws-sse)；下列文件名与验证说明保留用于追溯。
 
 页面入口：管理后台 → 账号 → 添加账号 → OpenAI → OAuth 或 2FA，向下滚动到 WS mode 后的加速开关。
 

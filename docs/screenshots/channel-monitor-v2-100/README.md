@@ -1,6 +1,6 @@
 # V2 降智状态固定 100 格
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100)；下列文件名与验证说明保留用于追溯。
 
 ## 展示规则
 
@@ -27,10 +27,10 @@
 
 ## 截图
 
-[改动前](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/before.png)
+[改动前](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/before.png)
 
-[不同数量均显示 100 格](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/desktop.png)
+[不同数量均显示 100 格](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/desktop.png)
 
-[超过一小时前的记录详情](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/tooltip.png)
+[超过一小时前的记录详情](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/tooltip.png)
 
-[手机展示 100 条](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/mobile.png)
+[手机展示 100 条](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/channel-monitor-v2-100/mobile.png)

@@ -1,6 +1,6 @@
 # 账号状态 BPS 标签预览
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/bps-status-badge)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/bps-status-badge)；下列文件名与验证说明保留用于追溯。
 
 基线：`a53a7ff163d9337a094e7537df3aac2b31f308b7`（`production`，版本 `2.9.5`）。
 

@@ -9,7 +9,7 @@
 
 原贡献中使用“凭证守护 V2”作为名称，但该功能不是凭证守护的版本升级或替代。本次统一用户可见名称；页面 URL、API、数据库和内部 `TokenGuardV2` 标识保留兼容，历史截图记录的是更名前界面。
 
-[图标对照预览](https://github.com/ranxi2001/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/credential-operations/icon-preview.png)：使用实际 `Icon.vue` 组件与中英文文案在隔离预览页渲染，覆盖 16 / 24 / 32 / 64 px、深浅色；仅验证图标，不代表完整页面或后端联调。
+[图标对照预览](https://github.com/eezd/sub2api/blob/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/credential-operations/icon-preview.png)：使用实际 `Icon.vue` 组件与中英文文案在隔离预览页渲染，覆盖 16 / 24 / 32 / 64 px、深浅色；仅验证图标，不代表完整页面或后端联调。
 
 ## 使用与默认行为
 

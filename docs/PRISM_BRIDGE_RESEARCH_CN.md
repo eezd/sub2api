@@ -1,6 +1,6 @@
 # PRISM_BRIDGE_RESEARCH_CN.md
 
-> 关联议题：[#256 [Research] Prism 多项目取长短，整合为 Codex Responses API Bridge](https://github.com/ranxi2001/sub2api/issues/256)
+> 关联议题：上游 Issue #256「[Research] Prism 多项目取长短，整合为 Codex Responses API Bridge」
 >
 > 本文是 **2026-10-01 基于 prism.openai.com 线上环境的实测结论**（非离线推演），
 > 供议题 P0/P1 阶段实现时对照。所有结论均在真实账号 + 真实沙箱上验证。

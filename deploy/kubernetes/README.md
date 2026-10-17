@@ -6,7 +6,7 @@
 
 ```bash
 release_tag=vX.Y.Z # 替换为实际发布版本
-curl -fsSL "https://raw.githubusercontent.com/ranxi2001/sub2api/$release_tag/deploy/upgrade-k3s.sh" | sudo bash -s -- --version "$release_tag"
+curl -fsSL "https://raw.githubusercontent.com/eezd/sub2api/$release_tag/deploy/upgrade-k3s.sh" | sudo bash -s -- --version "$release_tag"
 ```
 
 要求 root、Python 3.9+、curl 和 k3s；默认 namespace `tosky-canary`、Deployment `tosky-nerd`、容器 `sub2api`，可通过 `--namespace`、`--deployment`、`--container` 覆盖。仅支持已有单节点、单副本 Deployment，保留 Secret、PVC、资源、角色和更新策略。`--dry-run` 只读解析版本与工作负载，不拉镜像或更新 Deployment。
@@ -88,8 +88,8 @@ Secret 的 config.yaml 使用 subPath，更新后需要重建 Pod。PVC 用于�
 
 ```yaml
 images:
-  - name: ghcr.io/ranxi2001/sub2api
-    newName: ghcr.io/ranxi2001/sub2api
+  - name: ghcr.io/eezd/sub2api
+    newName: ghcr.io/eezd/sub2api
     digest: sha256:填写实际镜像摘要
 ```
 

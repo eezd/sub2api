@@ -1,6 +1,6 @@
 # 号池自动加组界面对比
 
-> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/ranxi2001/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/astra-auto-groups)；下列文件名与验证说明保留用于追溯。
+> PR 截图已从当前源码中清理，以减小源码包体积。[查看固定提交中的历史截图](https://github.com/eezd/sub2api/tree/297e9201a2f6d6fe70073b370a5b71f49579accf/docs/screenshots/astra-auto-groups)；下列文件名与验证说明保留用于追溯。
 
 页面入口：管理后台的采集流程 → 网关借票 → 配置与运行状态 → 号池调度。
 
