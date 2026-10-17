@@ -281,7 +281,8 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # ghcr.io/eezd/sub2api 包早于本仓库创建，仓库 GITHUB_TOKEN 无写权限时用个人 PAT（write:packages）
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - name: Build images and publish manifests
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
