@@ -82,6 +82,15 @@ class UpgradeTests(unittest.TestCase):
         with patch.object(u, 'api', side_effect=responses):
             self.assertEqual(u.resolve_release('v2.9.6'), ('v2.9.6', 'b' * 40))
 
+    def test_custom_release_tag_resolves_and_other_suffixes_rejected(self):
+        responses = [
+            {'tag_name': 'v2.12.0-custom.1', 'draft': False, 'prerelease': False},
+            {'object': {'type': 'commit', 'sha': 'b' * 40}}]
+        with patch.object(u, 'api', side_effect=responses):
+            self.assertEqual(u.resolve_release('v2.12.0-custom.1'), ('v2.12.0-custom.1', 'b' * 40))
+        with self.assertRaises(ValueError):
+            u.resolve_release('v2.12.0-rc.1')
+
     def test_unpublished_release_rejected(self):
         for key in ('draft', 'prerelease'):
             release = {'tag_name': 'v2.9.6', 'draft': False, 'prerelease': False, key: True}

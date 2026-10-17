@@ -15,9 +15,10 @@ import urllib.parse
 import urllib.request
 import uuid
 
-REPO = 'ranxi2001/sub2api'
+REPO = 'eezd/sub2api'
 IMAGE = 'ghcr.io/' + REPO
-VERSION = re.compile(r'^v[0-9]+[.][0-9]+[.][0-9]+$')
+# 本 fork 的定制版本 vX.Y.Z-custom.N 属于正式发布流
+VERSION = re.compile(r'^v[0-9]+[.][0-9]+[.][0-9]+(-custom[.][0-9]+)?$')
 SHA = re.compile(r'^[0-9a-f]{40}$')
 DIGEST = re.compile(r'^sha256:[0-9a-f]{64}$')
 CHECKSUM = re.compile(r'(?<![0-9a-f])([0-9a-f]{64})(?= +/app/sub2api)')
