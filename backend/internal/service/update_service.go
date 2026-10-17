@@ -35,7 +35,7 @@ const (
 	// Releases are maintained on the owner-controlled production fork. Keep the
 	// updater independent from the upstream repository so production installs
 	// see our release stream and can update to our fork's assets.
-	githubRepo = "ranxi2001/sub2api"
+	githubRepo = "eezd/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -683,7 +683,7 @@ func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
-	for i := 0; i < 3; i++ {
+	for i := range currentParts {
 		if currentParts[i] < latestParts[i] {
 			return -1
 		}
@@ -694,13 +694,23 @@ func compareVersions(current, latest string) int {
 	return 0
 }
 
-func parseVersion(v string) [3]int {
+// customVersionMarker 是本 fork 定制版本的后缀（如 2.12.0-custom.2），
+// 序号参与比较，使同一主版本的定制版本可以升级和回滚。
+const customVersionMarker = "-custom."
+
+// parseVersion 返回 [major, minor, patch, custom 序号]；非定制后缀（如 -rc.1）的序号按 0 处理。
+func parseVersion(v string) [4]int {
 	v = strings.TrimPrefix(v, "v")
+	result := [4]int{}
+	if idx := strings.Index(v, customVersionMarker); idx != -1 {
+		if parsed, err := strconv.Atoi(v[idx+len(customVersionMarker):]); err == nil {
+			result[3] = parsed
+		}
+	}
 	if idx := strings.IndexByte(v, '-'); idx != -1 {
 		v = v[:idx]
 	}
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
 	for i := 0; i < len(parts) && i < 3; i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
 			result[i] = parsed

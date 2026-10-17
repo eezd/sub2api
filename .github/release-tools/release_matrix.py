@@ -18,6 +18,12 @@ FULL_CONFIG = Path('.goreleaser.yaml')
 SIMPLE_CONFIG = Path('.goreleaser.simple.yaml')
 VERSION_FILE = Path('backend/cmd/server/VERSION')
 VERSION_RE = re.compile(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?')
+# 本 fork 的定制版本（如 2.12.0-custom.1）是正式发布流，不按语义化版本视为预发布。
+CUSTOM_VERSION_RE = re.compile(r'\d+\.\d+\.\d+-custom\.\d+')
+
+
+def is_prerelease(version):
+    return '-' in version and not CUSTOM_VERSION_RE.fullmatch(version)
 
 
 def config(simple=False):
@@ -67,7 +73,7 @@ def plan(args):
         raise ValueError('invalid VERSION')
     VERSION_FILE.write_text(version + '\n')
     result = {'sha': sha, 'tag': tag, 'version': version,
-              'prerelease': str('-' in version).lower(),
+              'prerelease': str(is_prerelease(version)).lower(),
               'owner_lower': os.environ.get('GITHUB_REPOSITORY_OWNER', '').lower(),
               'simple': str(args.simple).lower(), 'dry_run': str(args.dry_run).lower(),
               'date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -97,6 +103,9 @@ def generate_config(args):
         data['builds'] = [{'id': 'sub2api', 'skip': True}]
         data['archives'] = []
         extra = [{'glob': 'release-input/sub2api_*.tar.gz'}, {'glob': 'release-input/sub2api_*.zip'}]
+        if args.prerelease is not None:
+            # GoReleaser 的 auto 会把 -custom.N 当作预发布，改由 plan 的判定结果显式指定。
+            data['release']['prerelease'] = args.prerelease
         if args.simple:
             data['checksum'] = {'disable': True}
         else:
@@ -168,6 +177,7 @@ def main():
     p.add_argument('--goos')
     p.add_argument('--goarch')
     p.add_argument('--simple', action='store_true')
+    p.add_argument('--prerelease', choices=['true', 'false'])
     p.add_argument('--output', required=True)
     p.set_defaults(run=generate_config)
     p = commands.add_parser('collect')

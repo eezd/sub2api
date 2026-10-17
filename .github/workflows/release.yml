@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # 只发布本 fork 的定制版本；同步上游 vX.Y.Z tag 时不触发构建
+      - 'v*-custom.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -297,7 +298,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Prepare publication-only GoReleaser config
         run: |
-          args=(publish --output "$RUNNER_TEMP/goreleaser.publisher.yaml")
+          args=(publish --output "$RUNNER_TEMP/goreleaser.publisher.yaml" --prerelease "${{ needs.prepare.outputs.prerelease }}")
           if [[ "$SIMPLE_RELEASE" == true ]]; then args+=(--simple); fi
           python "$RUNNER_TEMP/release-tools/release_matrix.py" config "${args[@]}"
       - name: Publish existing archives and release notes

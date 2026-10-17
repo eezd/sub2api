@@ -6,6 +6,9 @@ registries=("ghcr.io/${owner,,}/sub2api")
 if [[ ${SIMPLE_RELEASE:-false} != true && ${DOCKERHUB_USERNAME:-skip} != skip ]]; then
   registries+=("${DOCKERHUB_USERNAME}/sub2api")
 fi
+# 与 release_matrix.is_prerelease 保持一致：-custom.N 定制版本属于正式发布流。
+stable=false
+if [[ $RELEASE_VERSION != *-* || $RELEASE_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+-custom\.[0-9]+$ ]]; then stable=true; fi
 arches=(amd64 arm64)
 if [[ ${SIMPLE_RELEASE:-false} == true ]]; then arches=(amd64); fi
 for arch in "${arches[@]}"; do
@@ -17,7 +20,7 @@ for arch in "${arches[@]}"; do
     args+=(--tag "$registry:$RELEASE_VERSION-$arch")
     if [[ ${SIMPLE_RELEASE:-false} == true ]]; then
       args+=(--tag "$registry:$RELEASE_VERSION")
-      if [[ $RELEASE_VERSION != *-* ]]; then args+=(--tag "$registry:latest"); fi
+      if [[ $stable == true ]]; then args+=(--tag "$registry:latest"); fi
     fi
   done
   if [[ ${DRY_RUN:-false} == true ]]; then
@@ -32,7 +35,7 @@ if [[ ${DRY_RUN:-false} != true && ${SIMPLE_RELEASE:-false} != true ]]; then
   minor=${RELEASE_VERSION#*.}; minor=${minor%%.*}
   for registry in "${registries[@]}"; do
     tags=(--tag "$registry:$RELEASE_VERSION")
-    if [[ $RELEASE_VERSION != *-* ]]; then
+    if [[ $stable == true ]]; then
       tags+=(--tag "$registry:latest" --tag "$registry:$major.$minor" --tag "$registry:$major")
     fi
     docker buildx imagetools create "${tags[@]}" \

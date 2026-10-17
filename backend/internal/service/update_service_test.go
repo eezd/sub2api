@@ -70,7 +70,16 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
-	require.Equal(t, "ranxi2001/sub2api", githubClient.latestRepo)
+	require.Equal(t, "eezd/sub2api", githubClient.latestRepo)
+}
+
+func TestCompareVersionsOrdersCustomSequence(t *testing.T) {
+	require.Equal(t, -1, compareVersions("2.12.0-custom.1", "2.12.0-custom.2"))
+	require.Equal(t, -1, compareVersions("2.12.0-custom.9", "2.12.0-custom.10"))
+	require.Equal(t, -1, compareVersions("2.12.0-custom.9", "2.12.1-custom.1"))
+	require.Equal(t, -1, compareVersions("2.12.0", "2.12.0-custom.1"))
+	require.Equal(t, 0, compareVersions("v2.12.0-custom.3", "2.12.0-custom.3"))
+	require.Equal(t, 0, compareVersions("2.12.0-rc.1", "2.12.0"))
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {

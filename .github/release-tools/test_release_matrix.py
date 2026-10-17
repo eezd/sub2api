@@ -73,7 +73,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         for simple in (False, True):
             with self.subTest(simple=simple):
                 original = release.config(simple)
-                release.generate_config(argparse.Namespace(mode='publish', simple=simple, output='publisher.yaml'))
+                release.generate_config(argparse.Namespace(mode='publish', simple=simple, prerelease=None, output='publisher.yaml'))
                 data = yaml.safe_load(Path('publisher.yaml').read_text())
                 self.assertTrue(data['builds'][0]['skip'])
                 self.assertFalse(data['archives'])
@@ -215,6 +215,29 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertIn("prerelease != 'true'", workflow['jobs']['sync-version-file']['if'])
         notification = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
         self.assertIn("prerelease != 'true'", notification['if'])
+
+    def test_custom_version_is_a_stable_release(self):
+        release.VERSION_FILE.write_text('9.8.7-custom.2\n')
+        with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(subprocess, 'check_output', return_value='a' * 40 + '\n'):
+            release.plan(argparse.Namespace(ref='feature/custom', dry_run=True, simple=False))
+        output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+        self.assertEqual(output['prerelease'], 'false')
+        release.generate_config(argparse.Namespace(mode='publish', simple=True, prerelease='false', output='publisher.yaml'))
+        self.assertEqual(yaml.safe_load(Path('publisher.yaml').read_text())['release']['prerelease'], 'false')
+        fake_bin = Path('bin')
+        fake_bin.mkdir()
+        docker = fake_bin / 'docker'
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
+        docker.chmod(0o755)
+        log_path = Path('custom.log').resolve()
+        env = {**os.environ, 'PATH': str(fake_bin.resolve()) + os.pathsep + os.environ['PATH'],
+               'DOCKER_LOG': str(log_path), 'RUNNER_TEMP': self.temp.name,
+               'RELEASE_VERSION': '9.8.7-custom.2', 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/sub2api',
+               'DRY_RUN': 'false', 'SIMPLE_RELEASE': 'true', 'DOCKERHUB_USERNAME': 'skip'}
+        subprocess.run(['bash', str(ROOT / '.github/release-tools/release-images.sh')], env=env, check=True)
+        log = log_path.read_text()
+        self.assertIn('ghcr.io/exampleowner/sub2api:9.8.7-custom.2', log)
+        self.assertIn('ghcr.io/exampleowner/sub2api:latest', log)
 
     def test_release_announcement_requires_explicit_opt_in(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
