@@ -3,7 +3,7 @@
     <TablePageLayout>
       <template #filters>
         <div
-          class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
+          class="card flex flex-col justify-between gap-4 px-5 py-4 lg:flex-row lg:items-start"
         >
           <!-- Left: fuzzy search + filters (can wrap to multiple lines) -->
           <div class="flex flex-1 flex-wrap items-center gap-3">

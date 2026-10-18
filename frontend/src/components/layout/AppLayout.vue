@@ -1,7 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
-    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
+  <div class="min-h-screen bg-[#f6f8fc] dark:bg-dark-950">
+    <!-- 环境光晕：玻璃面板的半透明需要背后有柔和的色彩层次 -->
+    <div class="pointer-events-none fixed inset-0 overflow-hidden dark:hidden">
+      <div class="absolute -left-20 -top-24 h-[500px] w-[500px] rounded-full bg-blue-400/15 blur-[120px]"></div>
+      <div class="absolute -right-24 top-[30%] h-[600px] w-[600px] rounded-full bg-indigo-400/[0.12] blur-[140px]"></div>
+      <div class="absolute -bottom-32 left-[20%] h-[550px] w-[550px] rounded-full bg-sky-300/15 blur-[130px]"></div>
+    </div>
+    <div class="pointer-events-none fixed inset-0 hidden bg-mesh-gradient dark:block"></div>
 
     <!-- Sidebar -->
     <AppSidebar />

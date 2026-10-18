@@ -1,10 +1,10 @@
 <template>
   <section
-    class="overflow-hidden rounded-2xl border bg-white shadow-card dark:bg-dark-800/50"
+    class="overflow-hidden rounded-2xl border bg-white/[0.85] shadow-card backdrop-blur-xl dark:bg-dark-800/50"
     :class="[platformBorderStrongClass(group.platform)]"
   >
     <!-- 分组头部:名称/平台/倍率徽章/专属/订阅徽章 + 描述 -->
-    <header class="border-b border-gray-100 px-5 py-4 dark:border-dark-700/60">
+    <header class="border-b border-slate-200/50 px-5 py-4 dark:border-dark-700/60">
       <div class="flex flex-wrap items-center gap-2">
         <GroupBadge
           :name="group.name"
