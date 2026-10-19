@@ -2,7 +2,7 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="card flex flex-wrap-reverse items-start justify-between gap-3 px-5 py-4">
+        <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             class="lg:w-auto lg:flex-1"
             v-model:searchQuery="params.search"

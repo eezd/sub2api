@@ -2,9 +2,9 @@
   <div
     :class="[
       'group relative flex flex-col overflow-hidden rounded-2xl border transition-all',
-      'shadow-card hover:shadow-card-hover hover:-translate-y-0.5',
+      'hover:shadow-xl hover:-translate-y-0.5',
       borderClass,
-      'bg-white/[0.85] backdrop-blur-xl dark:bg-dark-800',
+      'bg-white dark:bg-dark-800',
     ]"
   >
     <!-- Colored top accent bar -->
