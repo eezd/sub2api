@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sub2API 上游同步与发布"
+  short_description: "同步上游 production、保留自有修改，通过 CI 后发布并验收 custom 版本"
+  default_prompt: "使用 $sub2api-upstream-release 同步本项目上游并发布自有 custom 版本。"
