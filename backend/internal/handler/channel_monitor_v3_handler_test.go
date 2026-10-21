@@ -133,7 +133,9 @@ func TestChannelMonitorV3StatusScopesOrdinaryUsersServerSide(t *testing.T) {
 	require.NotNil(t, last)
 	require.Equal(t, service.ChannelMonitorV3StatusDown, last.Status)
 	require.Zero(t, last.Requests)
-	require.NotContains(t, recorder.Body.String(), "4321", "request volume never reaches users")
+	// 检查敏感字段本身，避免时间戳或比例中偶然出现相同数字而误报。
+	require.NotContains(t, recorder.Body.String(), `"requests":`, "请求量不应返回普通用户")
+	require.NotContains(t, recorder.Body.String(), `"errors":`, "错误数量不应返回普通用户")
 }
 
 func TestChannelMonitorV3StatusShowsAdminsEverything(t *testing.T) {
