@@ -12,6 +12,12 @@ Format: `NNN_description.sql`
 
 Example: `017_add_gemini_tier_id.sql`
 
+eezd 自有迁移使用 `custom_eezd_YYYYMMDD_NNN_description.sql`，例如
+`custom_eezd_20261021_001_chat.sql`，不占用上游数字编号。迁移器按完整文件名排序，
+通过完整文件名和校验和记录执行状态；数字迁移先执行，自有迁移随后执行。
+后续升级新增的上游数字迁移仍会执行，不会因自有迁移已执行而被跳过。
+自有迁移首次发布后同样禁止改名或修改内容；后续变更应新增迁移。
+
 ### `_notx.sql` 命名与执行语义（并发索引专用）
 
 当迁移包含 `CREATE INDEX CONCURRENTLY` 或 `DROP INDEX CONCURRENTLY` 时，必须使用 `_notx.sql` 后缀，例如：

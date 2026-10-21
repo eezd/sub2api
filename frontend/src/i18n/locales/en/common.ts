@@ -173,6 +173,7 @@ export default {
 
   // Navigation
   nav: {
+    chat: 'Chat',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

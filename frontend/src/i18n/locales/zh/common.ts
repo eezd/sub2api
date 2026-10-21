@@ -173,6 +173,7 @@ export default {
 
   // Navigation
   nav: {
+    chat: 'Chat 对话',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

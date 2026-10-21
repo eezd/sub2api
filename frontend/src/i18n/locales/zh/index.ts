@@ -1,3 +1,4 @@
+import chat from './chat'
 import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
 import controlledExperiments from './controlledExperiments'
@@ -21,6 +22,7 @@ import requestTiming from './requestTiming'
 import autoConfig from './autoConfig'
 
 export default {
+  ...chat,
   autoConfig,
   priorityScheduling,
   qualityOps,

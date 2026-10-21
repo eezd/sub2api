@@ -84,6 +84,22 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		// Chat 使用面板登录鉴权管理历史；模型请求仍由客户端携选定密钥访问既有网关。
+		chat := authenticated.Group("/chat", middleware.RequestBodyLimit(service.ChatRequestLimit))
+		{
+			chat.GET("/limits", h.Chat.Limits)
+			chat.GET("/conversations", h.Chat.List)
+			chat.POST("/conversations", h.Chat.Create)
+			chat.GET("/conversations/:id", h.Chat.Get)
+			chat.PATCH("/conversations/:id", h.Chat.Rename)
+			chat.DELETE("/conversations/:id", h.Chat.Delete)
+			chat.POST("/conversations/:id/attachments", h.Chat.Upload)
+			chat.POST("/conversations/:id/turns", h.Chat.StartTurn)
+			chat.PUT("/conversations/:id/messages/:message", h.Chat.SaveReply)
+			chat.GET("/attachments/:attachment", h.Chat.Download)
+			chat.DELETE("/attachments/:attachment", h.Chat.DeleteAttachment)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

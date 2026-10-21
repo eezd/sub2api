@@ -15,6 +15,7 @@ import "embed"
 //   - 使用零填充的数字前缀确保正确的执行顺序
 //   - 格式：NNN_description.sql（如 001_init.sql, 002_add_users.sql）
 //   - 描述部分使用下划线分隔的小写单词
+//   - eezd 自有迁移使用 custom_eezd_YYYYMMDD_NNN_description.sql，避免占用上游编号
 //
 // 迁移文件要求：
 //   - 必须是幂等的（可重复执行而不产生错误）

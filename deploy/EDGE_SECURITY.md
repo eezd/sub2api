@@ -27,6 +27,58 @@ legitimately occupy it for many minutes. Apply connection and unauthenticated
 request controls at the edge; authenticated user/API-key concurrency remains
 the application's responsibility.
 
+## Chat 对话的部署约束
+
+Chat 的模型流量直接进入现有 `/v1/chat/completions`，历史和附件使用需要登录的
+`/api/v1/chat/`。沿用网关现有的 API 密钥限制、计费与真实客户端 IP 策略。
+原文件每个最多 20 MiB、每条消息最多 5 个，原文件与提取文本合计每个用户最多 100,000,000 字节。
+PDF 在浏览器提取文字，最多 200 页、2,000,000 字节 UTF-8 文本，不提供 OCR。
+图片以内联 Base64 发送；完整模型请求（含历史与 JSON）最多 95,000,000 字节，
+如 `server.max_request_body_size` 或 `gateway.max_body_size` 更小，则使用更小值。
+超过限制会明确报错，不自动截断历史。代理限制更小时也应相应调低应用配置。
+
+历史表由启动迁移 `custom_eezd_20261021_001_chat.sql` 创建，正常升级无需手动重复执行。
+原文件为私有文件，目录由 `chat.attachment_dir` / `CHAT_ATTACHMENT_DIR` 指定，
+默认 `${DATA_DIR}/chat`（未设置 DATA_DIR 时为 `./data/chat`）。标准 Docker 工作目录
+下为 `/app/data/chat`，复用已有 data 持久卷。备份/恢复必须将数据库与此目录作为
+同一组数据处理；多实例必须共享此文件系统。不要将此目录暴露为 Nginx 静态目录。
+页面离开或停止会取消请求；异常关闭页面时可能仅保留最近 2 秒内已保存的内容，
+30 秒无心跳的生成会标记中断。未发送附件仍占配额，可从该会话移除或随会话删除。
+
+对于经过 Cloudflare 的站点，HTTP 请求体应限制为 **100,000,000 字节**，
+不能把 `100m`（104,857,600 字节）当成十进制 100 MB。此限制包含 multipart、
+JSON、Base64 和历史，并不等于原文件大小。Cloudflare 的区域设置也可能进一步
+降低限制，源站 Nginx 无法提高 CDN 上限。
+
+本项目现有两处站点的配置调整位置如下；这些是部署准备，修改线上文件和重载
+Nginx 需要单独授权：
+
+- `/etc/nginx/conf.d/588996.xyz/ai.588996.xyz.conf`
+- `/etc/nginx/conf.d/134333.xyz/ai-relay.134333.xyz.conf`
+
+在各自现有 `server` 中设置（保留 TLS、真实 IP、鉴权等配置）：
+
+```nginx
+client_max_body_size 100000000;
+```
+
+在各自代理到 Sub2API 的现有 `location /` 中设置，保留原有 `proxy_pass` 和转发头：
+
+```nginx
+proxy_http_version 1.1;
+proxy_buffering off;
+proxy_request_buffering off;
+proxy_cache off;
+proxy_read_timeout 1800s;
+proxy_send_timeout 1800s;
+```
+
+不要在 `gzip_types` 中加入 `text/event-stream`；如果有专门的 SSE location，
+可在其中设置 `gzip off;`。Cloudflare 缓存规则也应绕过 `/api/v1/chat/*` 与
+`/v1/chat/completions`。附件响应已有 `Cache-Control: private, no-store`，
+仍应确认边缘规则没有强制缓存。正式部署时先 `nginx -t` 再重载，并经过真实域名
+验证上传、413、停止请求、长时间 SSE 和附件权限；本地测试不能替代 CDN 实链验收。
+
 ## Trusted client IPs
 
 `security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
