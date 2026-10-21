@@ -1,5 +1,8 @@
 import chat from './chat'
 import imageWorkbench from './imageWorkbench'
+import connections from './connections'
+import securityRecords from './securityRecords'
+import siwc from './siwc'
 import priorityScheduling from './priorityScheduling'
 import qualityOps from './qualityOps'
 import controlledExperiments from './controlledExperiments'
@@ -25,6 +28,9 @@ import autoConfig from './autoConfig'
 export default {
   ...chat,
   ...imageWorkbench,
+  connections,
+  securityRecords,
+  siwc,
   autoConfig,
   priorityScheduling,
   qualityOps,

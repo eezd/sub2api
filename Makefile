@@ -6,10 +6,18 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/ChatView.spec.ts \
 	src/views/user/__tests__/ImageWorkbenchView.spec.ts \
 	src/components/chat/__tests__/ChatMessage.spec.ts \
+	src/views/admin/__tests__/AutoConfigView.spec.ts \
+	src/utils/__tests__/openaiTwoFAAdmission.spec.ts \
+	src/components/admin/account/__tests__/BulkExport2FADialog.spec.ts \
+	src/components/admin/account/__tests__/AccountBulkActionsBar.spec.ts \
+	src/features/security-penalties/__tests__/SecurityRecords.spec.ts \
+	src/views/user/__tests__/ProfileView.spec.ts \
+	src/components/account/__tests__/SIWCAccountSettings.spec.ts \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \
 	src/components/admin/account/__tests__/IQTestModal.modelTrace.spec.ts \
-	src/components/account/__tests__/OpenAISessionExportDialog.spec.ts \
+	src/features/ip-risk/__tests__/IPRiskSettings.spec.ts \
+	src/components/admin/account/__tests__/OpenAISessionExportDialog.spec.ts \
 	src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts \
 	src/api/__tests__/groupCacheTest.spec.ts \
 	src/views/admin/__tests__/GroupCacheTestView.spec.ts \
@@ -119,4 +127,4 @@ test-frontend:
 	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
-	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST) src/components/admin/usage/__tests__/UsageConnections.spec.ts
