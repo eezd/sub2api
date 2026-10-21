@@ -97,6 +97,7 @@ func provideCleanup(
 	opsService *service.OpsService,
 	opsIngressReject *service.OpsIngressRejectAggregator,
 	apiKeyService *service.APIKeyService,
+	imageWorkbench *service.ImageWorkbenchService,
 	concurrencyService *service.ConcurrencyService,
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
@@ -151,6 +152,10 @@ func provideCleanup(
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if err := imageWorkbench.Stop(ctx); err != nil {
+			log.Printf("停止生图工具台失败，保留其依赖供未结束任务使用: %v", err)
+			return
+		}
 
 		if openAIGateway != nil {
 			stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)

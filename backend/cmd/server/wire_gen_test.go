@@ -65,6 +65,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // opsService
 		nil, // opsIngressRejectAggregator
 		nil, // apiKeyService
+		&service.ImageWorkbenchService{},
 		nil, // concurrencyService
 		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,

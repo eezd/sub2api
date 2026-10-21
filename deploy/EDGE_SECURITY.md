@@ -197,6 +197,28 @@ available for the web UI and static assets.
 Do not use an incoming `$http_x_forwarded_for` value unless Nginx real-IP
 processing is restricted to explicit trusted proxy CIDRs.
 
+## 生图工具台的部署约束
+
+`/image-workbench` 使用 JWT 私有的 `/api/v1/image-workbench/*`，应在 CDN 与
+反向代理中绕过缓存；服务端响应包含 `Cache-Control: private, no-store`。
+上传每张最多 20 MiB、最多 5 张参考图，每次生成 1–4 张，参考图与生成图片独立
+占用每用户 100,000,000 字节，和 Chat 配额分开。提交时每张结果先预留 20 MiB，
+完成后只保留实际用量。空间不足需清理未使用上传或生成历史。
+
+任务提交立即返回，页面通过短请求轮询；离页不会取消后台生成，不需要让浏览器
+维持长达 30 分钟的 HTTP 连接。取消可能无法撤销已到达上游的请求或费用。
+Images 与 Gemini 请求仍经过完整现有网关；单张分别调用，上游失败不会由工具台
+自动重试。Gemini 使用流式接口以遵守分组的“仅流式”约束。
+完整参考图编码请求最多 100,000,000 字节，应用已有入口限制更小时取更小值。
+已有 Nginx 请求体限制与真实 IP 配置沿用前述规则。
+
+迁移 `custom_eezd_20261021_002_image_workbench.sql` 由正常启动执行，无需手动重复
+执行。图片放在 `${DATA_DIR}/image-workbench`（默认 `./data/image-workbench`，标准
+Docker 为 `/app/data/image-workbench`），复用 data 持久卷，不能映射成静态目录。
+备份/恢复需要同时包含数据库和此目录。当前任务运行器面向单应用实例；不要在
+共享数据库上并行启动多个应用实例，启动恢复会将旧运行任务标为中断并释放预留。
+重启不自动重放模型请求；已保存结果保留，中断请求仍可能已被上游计费。
+
 ## Caddy and CDN
 
 The bundled `deploy/Caddyfile` sets a 64 KiB header limit, a 10-second header

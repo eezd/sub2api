@@ -6,8 +6,9 @@ import type { ChatDetail, ChatMessage } from '@/api/chat'
 
 const mocks = vi.hoisted(() => ({
   api: { list: vi.fn(), create: vi.fn(), get: vi.fn(), rename: vi.fn(), remove: vi.fn(), limits: vi.fn(), upload: vi.fn(), download: vi.fn(), removeAttachment: vi.fn(), start: vi.fn(), save: vi.fn() },
-  keys: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn()
+  keys: vi.fn(), key: vi.fn(), models: vi.fn(), stream: vi.fn(), auth: { user: { id: 1 } }
 }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/api/chat', async () => ({ ...await vi.importActual<typeof import('@/api/chat')>('@/api/chat'), chatAPI: mocks.api, chatModels: mocks.models, streamChat: mocks.stream }))
 vi.mock('@/api/keys', () => ({ list: mocks.keys, getById: mocks.key }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
@@ -28,6 +29,7 @@ async function ready() {
 }
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear()
+  mocks.auth.user.id = 1
   mocks.api.list.mockResolvedValue([conversation]); mocks.api.create.mockResolvedValue(conversation)
   mocks.api.get.mockImplementation(async (): Promise<ChatDetail> => ({ conversation: { ...conversation }, messages: [], attachments: [] }))
   mocks.api.limits.mockResolvedValue(limits); mocks.api.save.mockResolvedValue(undefined)
@@ -38,6 +40,61 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers() })
 
 describe('ChatView', () => {
+  it.each(['invalid-json', '{"keyID":"10","model":"model"}', '{"keyID":10,"model":"model","protocol":"unknown"}'])('reports invalid stored preferences without preventing a fresh selection: %s', async raw => {
+    localStorage.setItem('sub2api:chat:selection:1', raw)
+    await setup()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).selectedIndex).toBe(0)
+    expect(wrapper.get('[role="alert"]').text()).not.toBe('')
+    await ready()
+    expect(wrapper.get('[data-testid="chat-send"]').attributes('disabled')).toBeUndefined()
+  })
+  it('keeps the latest key/model after navigation, including an existing conversation', async () => {
+    mocks.models.mockResolvedValue(['model', 'chosen-model'])
+    await setup('/chat/c')
+    await wrapper.get('[data-testid="chat-model"]').setValue('chosen-model')
+    await router.push('/other'); await flushPromises()
+    await router.push('/chat/c'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).value).toBe('10')
+    expect((wrapper.get('[data-testid="chat-model"]').element as HTMLSelectElement).value).toBe('chosen-model')
+    expect(mocks.stream).not.toHaveBeenCalled()
+    expect(JSON.stringify(localStorage)).not.toContain(key.key)
+  })
+  it('isolates remembered selections between users', async () => {
+    await setup(); await ready()
+    await router.push('/other'); await flushPromises()
+    mocks.auth.user.id = 2
+    await router.push('/chat'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).selectedIndex).toBe(0)
+    await router.push('/other'); await flushPromises()
+    mocks.auth.user.id = 1
+    await router.push('/chat'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-model"]').element as HTMLSelectElement).value).toBe('model')
+  })
+  it('does not restore a disabled key or an unavailable model', async () => {
+    mocks.models.mockResolvedValue(['model', 'another'])
+    await setup(); await ready()
+    await router.push('/other'); await flushPromises()
+    mocks.models.mockResolvedValue(['replacement'])
+    await router.push('/chat'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).value).toBe('10')
+    expect((wrapper.get('[data-testid="chat-model"]').element as HTMLSelectElement).value).toBe('')
+    await router.push('/other'); await flushPromises()
+    mocks.keys.mockResolvedValue({ items: [{ ...key, status: 'disabled' }], pages: 1 })
+    await router.push('/chat'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).selectedIndex).toBe(0)
+    expect(mocks.stream).not.toHaveBeenCalled()
+  })
+  it('keeps the saved selection when loading models temporarily fails', async () => {
+    await setup(); await ready()
+    await router.push('/other'); await flushPromises()
+    mocks.models.mockRejectedValueOnce(new Error('offline'))
+    await router.push('/chat'); await flushPromises()
+    expect(wrapper.text()).toContain('offline')
+    await router.push('/other'); await flushPromises()
+    await router.push('/chat'); await flushPromises()
+    expect((wrapper.get('[data-testid="chat-key"]').element as HTMLSelectElement).value).toBe('10')
+    expect((wrapper.get('[data-testid="chat-model"]').element as HTMLSelectElement).value).toBe('model')
+  })
   it('requires an explicit key, streams once and persists history without a secret', async () => {
     await setup()
     expect(wrapper.get('[data-testid="chat-send"]').attributes('disabled')).toBeDefined()

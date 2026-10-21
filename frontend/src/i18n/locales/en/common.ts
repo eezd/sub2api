@@ -174,6 +174,7 @@ export default {
   // Navigation
   nav: {
     chat: 'Chat',
+    imageWorkbench: 'Image Workbench',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

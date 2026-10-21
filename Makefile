@@ -4,6 +4,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/chat.spec.ts \
 	src/utils/__tests__/chatPDF.spec.ts \
 	src/views/user/__tests__/ChatView.spec.ts \
+	src/views/user/__tests__/ImageWorkbenchView.spec.ts \
 	src/components/chat/__tests__/ChatMessage.spec.ts \
 	src/api/admin/__tests__/modelTrace.spec.ts \
 	src/components/admin/account/__tests__/ModelTracePanel.spec.ts \

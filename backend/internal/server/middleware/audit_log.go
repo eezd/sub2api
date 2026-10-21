@@ -152,6 +152,8 @@ var auditActionOverrides = map[string]string{
 // auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
 // 这类 body 的凭证内嵌在普通字符串值里，键级脱敏无法覆盖，整体不入库。
 var auditBodyOmittedRoutes = map[string]struct{}{
+	"POST /api/v1/image-workbench/tasks":  {},
+	"POST /api/v1/image-workbench/assets": {},
 	// 聊天正文和私人文件不应复制到管理审计日志。
 	"POST /api/v1/chat/conversations/:id/turns":                 {},
 	"POST /api/v1/chat/conversations/:id/attachments":           {},

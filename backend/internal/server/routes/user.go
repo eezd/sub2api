@@ -100,6 +100,21 @@ func RegisterUserRoutes(
 			chat.DELETE("/attachments/:attachment", h.Chat.DeleteAttachment)
 		}
 
+		if h.ImageWorkbench != nil {
+			studio := authenticated.Group("/image-workbench", middleware.RequestBodyLimit(service.WorkbenchRequestLimit))
+			studio.GET("/limits", h.ImageWorkbench.Limits)
+			studio.GET("/models", h.ImageWorkbench.Models)
+			studio.GET("/tasks", h.ImageWorkbench.List)
+			studio.POST("/tasks", h.ImageWorkbench.Submit)
+			studio.GET("/tasks/:id", h.ImageWorkbench.Get)
+			studio.POST("/tasks/:id/cancel", h.ImageWorkbench.Cancel)
+			studio.DELETE("/tasks/:id", h.ImageWorkbench.Delete)
+			studio.GET("/assets", h.ImageWorkbench.Drafts)
+			studio.POST("/assets", h.ImageWorkbench.Upload)
+			studio.GET("/assets/:asset", h.ImageWorkbench.Download)
+			studio.DELETE("/assets/:asset", h.ImageWorkbench.DeleteAsset)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

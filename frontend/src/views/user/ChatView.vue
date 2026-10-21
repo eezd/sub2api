@@ -19,18 +19,18 @@
       <section class="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
         <div class="flex flex-wrap items-end gap-3 border-b border-gray-100 p-3 dark:border-dark-800">
           <label class="min-w-32 flex-1 text-xs text-gray-500">{{ t('chat.key') }}
-            <select v-model="selectedKey" data-testid="chat-key" class="input mt-1 w-full" :disabled="busy || working">
+            <select v-model="selectedKey" data-testid="chat-key" class="input mt-1 w-full" :disabled="busy || working || initializingSelection">
               <option :value="null">{{ t('chat.selectKey') }}</option>
               <option v-for="k in keys" :key="k.id" :value="k.id">{{ k.name }} · #{{ k.id }}</option>
             </select>
           </label>
           <label class="min-w-32 flex-1 text-xs text-gray-500">{{ t('chat.model') }}
-            <select v-model="selectedModel" data-testid="chat-model" class="input mt-1 w-full" :disabled="busy || working || modelsLoading || !models.length">
+            <select v-model="selectedModel" data-testid="chat-model" class="input mt-1 w-full" :disabled="busy || working || initializingSelection || modelsLoading || !models.length">
               <option value="">{{ modelsLoading ? t('chat.loading') : t('chat.selectModel') }}</option>
               <option v-for="model in models" :key="model" :value="model">{{ model }}</option>
             </select>
           </label>
-          <button v-if="selectedKey" type="button" class="btn btn-ghost px-2" :disabled="busy || working || modelsLoading" :title="t('chat.refreshModels')" @click="loadModels">↻</button>
+          <button v-if="selectedKey" type="button" class="btn btn-ghost px-2" :disabled="busy || working || initializingSelection || modelsLoading" :title="t('chat.refreshModels')" @click="loadModels">↻</button>
           <button v-if="detail" type="button" class="btn btn-ghost px-2 text-sm" :disabled="busy || working" @click="renameConversation">{{ t('chat.rename') }}</button>
           <button v-if="detail" type="button" class="btn btn-ghost px-2 text-sm text-red-600" :disabled="busy || working" @click="deleteConversation">{{ t('chat.delete') }}</button>
         </div>
@@ -85,11 +85,13 @@ import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
 import { AttachmentError, buildChatBody, byteLength, CHAT_ACCEPT, extractAttachment } from '@/utils/chatAttachments'
 import { SSEError } from '@/utils/sse'
+import { useModelSelectionPreference } from '@/composables/useModelSelectionPreference'
 
 const { t } = useI18n(), router = useRouter(), route = useRoute()
 const conversations = ref<Conversation[]>([]), detail = ref<ChatDetail | null>(null), limits = ref<ChatLimits | null>(null)
 const keys = ref<Pick<ApiKey, 'id' | 'name'>[]>([]), selectedKey = ref<number | null>(null), selectedModel = ref(''), models = ref<string[]>([])
 const modelsLoading = ref(false), loadingDetail = ref(false), working = ref(false), loadingList = ref(false), hasMore = ref(false)
+const initializingSelection = ref(true)
 const error = ref(''), draft = ref(''), previews = ref<Record<string,string>>({}), controller = shallowRef<AbortController | null>(null)
 const unsaved = shallowRef<{ cid: string; mid: string; snapshot: Snapshot } | null>(null)
 const scrollArea = ref<HTMLElement | null>(null), fileInput = ref<HTMLInputElement | null>(null)
@@ -98,7 +100,7 @@ let modelController: AbortController | null = null, sendTask: Promise<void> | nu
 const pending = computed(() => detail.value?.attachments.filter(a => !a.message_id) ?? [])
 const remoteGenerating = computed(() => !controller.value && detail.value?.messages.some(m => m.status === 'generating'))
 const busy = computed(() => !!controller.value || !!remoteGenerating.value)
-const canSend = computed(() => !busy.value && !working.value && !loadingDetail.value && !unsaved.value && !detail.value?.conversation.deleting && !!limits.value && !!selectedKey.value && models.value.includes(selectedModel.value) && (!!draft.value.trim() || pending.value.length > 0))
+const canSend = computed(() => !initializingSelection.value && !busy.value && !working.value && !loadingDetail.value && !unsaved.value && !detail.value?.conversation.deleting && !!limits.value && !!selectedKey.value && models.value.includes(selectedModel.value) && (!!draft.value.trim() || pending.value.length > 0))
 
 function messageFor(err: unknown): string {
   if (err instanceof AttachmentError) return t(`chat.errors.${err.code}`)
@@ -109,6 +111,10 @@ function messageFor(err: unknown): string {
   return t('chat.errors.network')
 }
 function showError(err: unknown) { error.value = messageFor(err) }
+const selectionPreference = useModelSelectionPreference('chat', showError)
+watch([selectedKey, selectedModel, modelsLoading, loadingDetail], () => {
+  if (!initializingSelection.value && !modelsLoading.value && !loadingDetail.value && !disposed && (!selectedKey.value || models.value.length)) selectionPreference.save(selectedKey.value, selectedModel.value)
+})
 async function refreshList() { conversations.value = await chatAPI.list(); page = 1; hasMore.value = conversations.value.length === 50 }
 async function moreConversations() {
   loadingList.value = true
@@ -137,12 +143,12 @@ async function loadModels() {
     if (version !== modelVersion || disposed) return
     models.value = available
     if (available.includes(previous)) selectedModel.value = previous
-    else if (available.length === 1) selectedModel.value = available[0]
+    else if (!previous && available.length === 1) selectedModel.value = available[0]
     if (!available.length) error.value = t('chat.noModels')
   } catch (err) { if (version === modelVersion && !modelController.signal.aborted) showError(err) }
   finally { if (version === modelVersion) modelsLoading.value = false }
 }
-watch(selectedKey, loadModels)
+watch(selectedKey, () => { if (!initializingSelection.value) void loadModels() })
 function clearPreviews() { for (const url of Object.values(previews.value)) URL.revokeObjectURL(url); previews.value = {} }
 async function loadPreviews(d: ChatDetail, version: number) {
   for (const a of d.attachments) {
@@ -154,18 +160,21 @@ async function loadPreviews(d: ChatDetail, version: number) {
     } catch (err) { if (version === detailVersion) showError(err) }
   }
 }
-async function loadConversation(id: string) {
+async function loadConversation(id: string, restoreSelection = true) {
   if (id === detail.value?.conversation.id) return
   const version = ++detailVersion
-  clearPreviews(); detail.value = null; draft.value = ''; error.value = unsaved.value ? t('chat.errors.save') : ''; loadingDetail.value = !!id
+  clearPreviews(); detail.value = null; draft.value = ''; loadingDetail.value = !!id
+  if (!initializingSelection.value) error.value = unsaved.value ? t('chat.errors.save') : ''
   if (!id) return
   try {
     const d = await chatAPI.get(id)
     if (disposed || version !== detailVersion) return
     detail.value = d
-    selectedModel.value = d.conversation.model
-    if (selectedKey.value === d.conversation.api_key_id) await loadModels()
-    else selectedKey.value = d.conversation.api_key_id
+    if (restoreSelection) {
+      selectedModel.value = d.conversation.model
+      if (!initializingSelection.value && selectedKey.value === d.conversation.api_key_id) await loadModels()
+      else selectedKey.value = d.conversation.api_key_id
+    }
     void loadPreviews(d, version)
     await scrollBottom()
   } catch (err) { if (version === detailVersion) showError(err) }
@@ -296,8 +305,18 @@ onBeforeRouteUpdate(async to => { if (to.params.id !== detail.value?.conversatio
 function beforeUnload() { controller.value?.abort() }
 onMounted(async () => {
   window.addEventListener('beforeunload', beforeUnload)
-  try { await Promise.all([loadKeys(), refreshList(), chatAPI.limits().then(value => { limits.value = value })]); if (disposed) return; await loadConversation(typeof route.params.id === 'string' ? route.params.id : '') }
+  try {
+    await Promise.all([loadKeys(), refreshList(), chatAPI.limits().then(value => { limits.value = value })])
+    if (disposed) return
+    const saved = selectionPreference.load()
+    const restoreSaved = !!saved && (saved.keyID === null || keys.value.some(k => k.id === saved.keyID))
+    if (saved && restoreSaved) { selectedKey.value = saved.keyID; selectedModel.value = saved.model }
+    await loadConversation(typeof route.params.id === 'string' ? route.params.id : '', !restoreSaved)
+    await nextTick()
+    await loadModels()
+  }
   catch (err) { showError(err) }
+  initializingSelection.value = false
   if (disposed) return
   poll = setInterval(async () => {
     if (!remoteGenerating.value || !detail.value || working.value) return

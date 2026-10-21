@@ -123,6 +123,7 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorV3Repository,
 	NewSupportTicketRepository,
 	NewChatRepository,
+	NewImageWorkbenchRepository,
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
