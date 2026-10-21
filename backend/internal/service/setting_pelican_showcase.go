@@ -149,5 +149,8 @@ func (s *SettingService) UpdatePelicanShowcaseSettings(ctx context.Context, enab
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return PelicanShowcaseRuntime{}, err
 	}
+	if s.onUpdate != nil {
+		s.onUpdate()
+	}
 	return PelicanShowcaseRuntime{Enabled: enabled, APIEnabled: currentAPIEnabled, Config: normalized}, nil
 }
