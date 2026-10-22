@@ -1,5 +1,6 @@
 import chat from './chat'
 import imageWorkbench from './imageWorkbench'
+import ipAudit from './ipAudit'
 import connections from './connections'
 import securityRecords from './securityRecords'
 import siwc from './siwc'
@@ -28,6 +29,7 @@ import autoConfig from './autoConfig'
 export default {
   ...chat,
   ...imageWorkbench,
+  ipAudit,
   connections,
   securityRecords,
   siwc,
