@@ -6,6 +6,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/ChatView.spec.ts \
 	src/views/user/__tests__/ImageWorkbenchView.spec.ts \
 	src/components/chat/__tests__/ChatMessage.spec.ts \
+	src/views/admin/__tests__/RiskControlView.spec.ts \
+	src/i18n/__tests__/riskControlLocales.spec.ts \
 	src/components/common/__tests__/PlatformTypeBadge.openaiPlans.spec.ts \
 	src/components/common/__tests__/PlatformTypeBadge.grok.spec.ts \
 	src/views/admin/__tests__/AutoConfigView.spec.ts \
