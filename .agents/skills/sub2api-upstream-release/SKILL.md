@@ -12,7 +12,9 @@ description: 同步 ranxi2001/sub2api 上游到 eezd/sub2api，处理合并冲�
 ## 项目不变量
 
 - 唯一上游为 `ranxi2001/sub2api`；唯一推送目标为 `eezd/sub2api` 的 `production`，不开功能分支，不向上游推送，不强推。
-- 跟随最新上游正式版及其 `production` 头，先固定 SHA，并说明 tag 之后的额外提交。自有版本为 `vX.Y.Z-custom.N`；新基础版本从 `.1` 开始，同基础版本按远端 tag 和 Release 的最大数字递增，不能只读 VERSION 或按字符串排序。
+- 跟随 `ranxi2001/sub2api` 最新正式版及其 `production` 头，先固定 SHA，并说明 tag 之后的额外提交。自有版本必须为 `v<上游正式版本>-custom.N`：基础版本完全取自源仓库的正式 Release/tag，不根据本地 VERSION、自有上一版或发版次数递增，也不把 Wei-Shaw 的版本号转换为 ranxi 的版本号。
+- 后缀只在同一上游基础版本内计数：例如上游从 `2.17.0` 升到 `2.18.0`，首次发布必须是 `v2.18.0-custom.1`；再次发布同一上游版本，才按远端 `v2.18.0-custom.N` tag 和 Release 的最大数字加一。其他基础版本的计数不参与，不能按字符串排序或覆盖已有 tag。
+- 用户指定的上游版本与实际 Release/tag 不一致时，先核对来源并说明差异；目标未确定前不要改成本地版本加一、擅自发布另一个 custom 版本，或给旧源码套用尚不存在的上游版本号。
 - 每个版本只启动一次 GitHub Actions 运行：推送 production 不触发工作流，自有 tag 只触发 Release；Release 内复用 CI、安全扫描、Caddy/fullapp 检查，全部通过后构建并发布。不额外 dispatch、推空提交触发 CI、另跑标签 CI 或自动重跑失败任务；一次运行内允许多个必要 job。PR 检查与安全扫描定时任务不属于版本发布触发链。
 - 全量发布：Linux/macOS amd64、arm64 和 Windows amd64，共五个主程序包及 checksums；GHCR amd64/arm64；两个架构的 reauth runtime。custom 属正式版，镜像更新版本号、latest、主次版本及主版本别名。`SIMPLE_RELEASE=true` 会覆盖 dispatch 参数，必须检查。
 - 保留 eezd 的安装、更新、reauth 下载来源与 custom 正式版规则；保留只由 `v*-custom.*` tag 触发发布的规则。DockerHub、Telegram 只沿用已明确授权的范围，默认不额外通知。
@@ -21,7 +23,7 @@ description: 同步 ranxi2001/sub2api 上游到 eezd/sub2api，处理合并冲�
 
 ## 执行
 
-1. 运行 `python3 tools/upstream_release.py plan`。该命令不修改本地仓库或远端；输出上游版本、固定 SHA、额外提交数、远端 production SHA 和下一个 custom tag。审查上游变更，尤其是自有发布配置、数据库迁移、依赖和工具链变化。
+1. 运行 `python3 tools/upstream_release.py plan`。该命令不修改本地仓库或远端；输出上游版本、固定 SHA、额外提交数、远端 production SHA 和下一个 custom tag。向用户明确本轮“源仓库正式版 → 自有版本”的对应关系，并检查基础版本一致；本地 VERSION 只用于检查当前状态，不用于决定发布编号。审查上游变更，尤其是自有发布配置、数据库迁移、依赖和工具链变化。
 2. 已获同步授权后，运行 `python3 tools/upstream_release.py sync --upstream-sha <完整 SHA>`。首次同步会固定计划；已跟踪文件有未提交修改时停止，未跟踪文件保留。状态保存在当前仓库 `.git/upstream-release.json`，不能复制到其他仓库或手工更改其中的提交标识。
 3. 冲突时保留现场并分析，不批量使用 ours/theirs。VERSION 可取固定上游提交的值；其他冲突逐项保留上游功能与 eezd 改动。处理后审查暂存 diff，运行相关最小检查，用英文提交，再运行同一条 `sync` 继续。无文本冲突仍须审查合并结果；脚本的字符串检查只是早期检查，不能证明语义正确。若发现问题，在发布前修复并提交，再运行 `sync` 推送修正并更新实际发布 SHA；已推送 tag 后不再改变本次发布提交。
 4. 检查本次合并 diff、自有来源和工具链，运行受影响的最小本地检查；确认 Actions 已可用。运行 `python3 tools/upstream_release.py publish --sha <sync 输出的完整提交 SHA>`，工具核对来源、单次发布工作流与远端 HEAD 后推送附注 tag，只启动一次 Release。标签创建不代表检查通过或软件已发布；同一次运行先检查该精确 SHA，再构建和发布，失败不自动重跑，不改测试绕过失败。
