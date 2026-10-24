@@ -57,7 +57,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - name: Preserve tooling for releases of older tags
-        run: cp -R .github/release-tools "$RUNNER_TEMP/release-tools"
+        run: |
+          cp -R .github/release-tools "$RUNNER_TEMP/release-tools"
+          cp tools/upstream_release.py "$RUNNER_TEMP/release-tools/"
       - name: Checkout selected application source
         uses: actions/checkout@v6
         with:
@@ -87,8 +89,32 @@ jobs:
           path: backend/cmd/server/VERSION
           retention-days: 1
 
-  build-frontend:
+  ci:
     needs: prepare
+    uses: ./.github/workflows/backend-ci.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  security:
+    needs: prepare
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  caddy:
+    needs: prepare
+    uses: ./.github/workflows/multihost-caddy.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  fullapp:
+    needs: prepare
+    uses: ./.github/workflows/multihost-fullapp.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  build-frontend:
+    needs: [prepare, ci, security, caddy, fullapp]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -198,7 +224,7 @@ jobs:
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   build-reauth-runtime:
-    needs: prepare
+    needs: [prepare, ci, security, caddy, fullapp]
     strategy:
       fail-fast: false
       matrix:
@@ -325,6 +351,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$RELEASE_TAG" reauth-output/*.tar.gz --repo "$GITHUB_REPOSITORY"
+      - name: Verify published archives, runtimes and image aliases
+        if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, os.path.join(os.environ['RUNNER_TEMP'], 'release-tools'))
+          import upstream_release
+          upstream_release.verify_artifacts(upstream_release.GitHub(), os.environ['RELEASE_TAG'])
+          PY
       - name: Upload dry-run checksums and metadata
         if: ${{ env.DRY_RUN == 'true' }}
         uses: actions/upload-artifact@v7

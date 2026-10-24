@@ -1,8 +1,13 @@
 name: Security Scan
 
 on:
-  push:
   pull_request:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact application commit selected by the release workflow
+        type: string
+        required: true
   schedule:
     - cron: '0 3 * * 1'
 
@@ -15,6 +20,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -34,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:

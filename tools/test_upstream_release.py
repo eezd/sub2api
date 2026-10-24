@@ -53,11 +53,10 @@ class GitHubFixture:
             return self.jobs[path.split('/actions/runs/')[1].split('/')[0]]
         raise AssertionError(f'未预期的分页：{path}')
 
-    def successful_ci(self, sha):
-        for index, (workflow, jobs) in enumerate(release.CHECKS.items(), 1):
-            self.runs[workflow] = [{'id': index, 'head_sha': sha, 'event': 'push', 'head_branch': 'production',
-                                    'status': 'completed', 'conclusion': 'success', 'html_url': 'fixture'}]
-            self.jobs[str(index)] = [{'name': name, 'conclusion': 'success'} for name in jobs]
+    def successful_release(self, sha, tag):
+        self.runs['release.yml'] = [{'id': 1, 'head_sha': sha, 'event': 'push', 'head_branch': tag,
+                                    'status': 'completed', 'conclusion': 'success', 'html_url': 'fixture-release'}]
+        self.jobs['1'] = [{'name': name, 'conclusion': 'success'} for name in release.RELEASE_JOBS]
 
 
 class UpstreamReleaseTests(unittest.TestCase):
@@ -87,6 +86,9 @@ class UpstreamReleaseTests(unittest.TestCase):
             release.VERSION: '2.12.0\n',
             'feature.txt': '原始内容\n',
         }
+        for _, (filename, _) in release.RELEASE_CHECKS.items():
+            files[f'.github/workflows/{filename}'] = 'on:\n  workflow_call:\n'
+            files['.github/workflows/release.yml'] += f'uses: ./.github/workflows/{filename}\n'
         for filename, content in files.items():
             path = self.upstream / filename
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +113,6 @@ class UpstreamReleaseTests(unittest.TestCase):
 
     def prepare(self):
         state = release.sync(self.local, self.api, self.args)
-        self.api.successful_ci(state['sha'])
         return state
 
     def test_numeric_version_uses_all_existing_sequences(self):
@@ -141,6 +142,18 @@ class UpstreamReleaseTests(unittest.TestCase):
             release.sync(self.local, self.api, self.args)
         self.assertEqual(run(self.origin, 'rev-parse', 'production'), original)
 
+    def test_upstream_cannot_restore_independent_push_workflow(self):
+        path = self.local / '.github/workflows/request-timing-build.yml'
+        path.write_text('on:\n  push:\n    branches: [production]\n')
+        with self.assertRaisesRegex(release.ReleaseError, '单次发布 Actions'):
+            release.fork_guards(self.local)
+
+    def test_release_cannot_drop_security_checks(self):
+        path = self.local / '.github/workflows/release.yml'
+        path.write_text(path.read_text().replace('uses: ./.github/workflows/security-scan.yml', ''))
+        with self.assertRaisesRegex(release.ReleaseError, '发布检查未接入'):
+            release.fork_guards(self.local)
+
     def test_conflict_is_preserved_and_resumes_after_resolution(self):
         (self.local / 'feature.txt').write_text('本地功能\n')
         run(self.local, 'commit', '-am', 'local feature')
@@ -156,35 +169,51 @@ class UpstreamReleaseTests(unittest.TestCase):
         self.assertEqual(state['stage'], 'pushed')
         self.assertTrue(release.ancestor(self.local, self.api.sha, state['sha']))
 
-    def test_missing_ci_or_skipped_job_cannot_create_tag(self):
+    def test_publish_starts_release_without_separate_ci_runs(self):
         state = self.prepare()
         args = argparse.Namespace(sha=state['sha'], timeout=0)
-        self.api.runs['backend-ci.yml'] = []
+        release.publish(self.local, self.api, args)
+        self.assertEqual(run(self.origin, 'tag'), state['tag'])
+        self.assertEqual(self.api.runs, {})
+
+    def test_missing_release_or_skipped_job_cannot_pass_verification(self):
+        state = self.prepare()
         with self.assertRaisesRegex(release.ReleaseError, '等待超时'):
-            release.publish(self.local, self.api, args)
-        self.assertEqual(run(self.local, 'tag'), '')
-        self.api.successful_ci(state['sha'])
+            release.wait_for(lambda: release.successful_run(self.api, state['sha'], state['tag']), 0)
+        self.api.successful_release(state['sha'], state['tag'])
         self.api.jobs['1'][0]['conclusion'] = 'skipped'
         with self.assertRaisesRegex(release.ReleaseError, '缺失、跳过或失败'):
-            release.publish(self.local, self.api, args)
-        self.assertEqual(run(self.local, 'tag'), '')
+            release.successful_run(self.api, state['sha'], state['tag'])
 
-    def test_ci_for_different_commit_cannot_create_tag(self):
+    def test_checks_for_different_commit_or_tag_cannot_pass_verification(self):
         state = self.prepare()
-        self.api.successful_ci('a' * 40)
-        with self.assertRaisesRegex(release.ReleaseError, '等待超时'):
-            release.publish(self.local, self.api, argparse.Namespace(sha=state['sha'], timeout=0))
-        self.assertEqual(run(self.local, 'tag'), '')
+        self.api.successful_release('a' * 40, state['tag'])
+        self.assertIsNone(release.successful_run(self.api, state['sha'], state['tag']))
+        self.api.successful_release(state['sha'], 'v2.13.0-custom.99')
+        self.assertIsNone(release.successful_run(self.api, state['sha'], state['tag']))
 
-    def test_post_sync_fix_gets_new_ci_commit(self):
+    def test_failed_or_missing_validation_job_cannot_pass_verification(self):
+        state = self.prepare()
+        self.api.successful_release(state['sha'], state['tag'])
+        self.api.runs['release.yml'][0]['conclusion'] = 'failure'
+        with self.assertRaisesRegex(release.ReleaseError, '未通过'):
+            release.successful_run(self.api, state['sha'], state['tag'])
+        self.api.successful_release(state['sha'], state['tag'])
+        self.api.jobs['1'] = [job for job in self.api.jobs['1'] if job['name'] != 'security / backend-security']
+        with self.assertRaisesRegex(release.ReleaseError, '缺失、跳过或失败'):
+            release.successful_run(self.api, state['sha'], state['tag'])
+
+    def test_post_sync_fix_gets_new_release_commit(self):
         original = self.prepare()
         (self.local / 'feature.txt').write_text('发布前修正\n')
         run(self.local, 'commit', '-am', 'fix: preserve fork behavior')
         updated = release.sync(self.local, self.api, self.args)
         self.assertNotEqual(original['sha'], updated['sha'])
         self.assertEqual(run(self.origin, 'rev-parse', 'production'), updated['sha'])
-        with self.assertRaisesRegex(release.ReleaseError, '等待超时'):
-            release.publish(self.local, self.api, argparse.Namespace(sha=updated['sha'], timeout=0))
+        with self.assertRaisesRegex(release.ReleaseError, '完全一致'):
+            release.publish(self.local, self.api, argparse.Namespace(sha=original['sha'], timeout=0))
+        release.publish(self.local, self.api, argparse.Namespace(sha=updated['sha'], timeout=0))
+        self.assertEqual(run(self.origin, 'rev-parse', f'{updated["tag"]}^{{commit}}'), updated['sha'])
 
     def test_rejected_fix_push_can_resume_without_losing_previous_remote(self):
         original = self.prepare()
@@ -248,10 +277,7 @@ class UpstreamReleaseTests(unittest.TestCase):
                         'browser_download_url': f'https://github.com/eezd/sub2api/releases/download/{state["tag"]}/{name}'}
                        for name, content in payloads.items()],
         }
-        self.api.runs['release.yml'] = [{'id': 3, 'head_sha': state['sha'], 'event': 'push', 'head_branch': state['tag'],
-                                        'status': 'completed', 'conclusion': 'success', 'html_url': 'fixture-release'}]
-        self.api.jobs['3'] = [{'name': name, 'conclusion': 'success'} for name in
-                              ('prepare', 'build-frontend', 'release', 'sync-version-file', 'build-binaries (linux, amd64)')]
+        self.api.successful_release(state['sha'], state['tag'])
         bot = self.directory / 'bot'
         run(self.directory, 'clone', '--branch', 'production', str(self.origin), str(bot))
         self.identity(bot)

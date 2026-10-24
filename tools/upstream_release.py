@@ -25,9 +25,14 @@ BRANCH = 'production'
 VERSION = 'backend/cmd/server/VERSION'
 STABLE = re.compile(r'v(\d+)\.(\d+)\.(\d+)')
 SHA = re.compile(r'[0-9a-f]{40}')
-CHECKS = {
-    'backend-ci.yml': {'shell', 'test', 'frontend', 'golangci-lint', 'release-helpers', 'prism-adapter'},
-    'security-scan.yml': {'backend-security', 'frontend-security'},
+RELEASE_CHECKS = {
+    'ci': ('backend-ci.yml', {'shell', 'test', 'frontend', 'golangci-lint', 'release-helpers', 'prism-adapter'}),
+    'security': ('security-scan.yml', {'backend-security', 'frontend-security'}),
+    'caddy': ('multihost-caddy.yml', {'real-proxy-responses'}),
+    'fullapp': ('multihost-fullapp.yml', {'isolated-real-applications'}),
+}
+RELEASE_JOBS = {'prepare', 'build-frontend', 'release', 'sync-version-file'} | {
+    f'{caller} / {job}' for caller, (_, jobs) in RELEASE_CHECKS.items() for job in jobs
 }
 
 
@@ -192,6 +197,16 @@ def fork_guards(root):
         path = root / filename
         if not path.is_file() or any(marker not in path.read_text() for marker in markers):
             raise ReleaseError(f'自有修改检查失败：{filename}；请审查合并结果')
+    # 独立 push 检查会让一次发版启动多个 Actions；旧试验流程已并入 CI。
+    for path in (root / '.github/workflows').glob('*.yml'):
+        if path.name != 'release.yml' and re.search(r'^  push:', path.read_text(), re.MULTILINE):
+            raise ReleaseError(f'违反单次发布 Actions 约束：{path.name} 仍有独立 push 触发器')
+    workflow = (root / '.github/workflows/release.yml').read_text()
+    for _, (filename, _) in RELEASE_CHECKS.items():
+        check = root / '.github/workflows' / filename
+        if (not check.is_file() or '  workflow_call:' not in check.read_text() or
+                f'uses: ./.github/workflows/{filename}' not in workflow):
+            raise ReleaseError(f'发布检查未接入单次 Release：{filename}')
 
 
 def release_settings(api):
@@ -267,22 +282,21 @@ def sync(root, api, args):
     return state
 
 
-def successful_run(api, workflow, sha, event='push', branch=BRANCH):
-    query = urllib.parse.urlencode({'head_sha': sha, 'event': event, 'branch': branch})
-    runs = api.get(f'repos/{FORK}/actions/workflows/{workflow}/runs?{query}&per_page=100')['workflow_runs']
-    runs = [run for run in runs if run['head_sha'] == sha and run['event'] == event and run['head_branch'] == branch]
+def successful_run(api, sha, tag):
+    query = urllib.parse.urlencode({'head_sha': sha, 'event': 'push', 'branch': tag})
+    runs = api.get(f'repos/{FORK}/actions/workflows/release.yml/runs?{query}&per_page=100')['workflow_runs']
+    runs = [run for run in runs if run['head_sha'] == sha and run['event'] == 'push' and run['head_branch'] == tag]
     if not runs:
         return None
     run = max(runs, key=lambda row: row['id'])
     if run['status'] != 'completed':
         return None
     if run['conclusion'] != 'success':
-        raise ReleaseError(f'{workflow} 未通过：{run["html_url"]}')
+        raise ReleaseError(f'Release 未通过：{run["html_url"]}')
     jobs = api.pages(f'repos/{FORK}/actions/runs/{run["id"]}/jobs', key='jobs')
-    required = CHECKS.get(workflow, {'prepare', 'build-frontend', 'release', 'sync-version-file'})
     names = {job['name'] for job in jobs if job['conclusion'] == 'success'}
-    if not required <= names or any(job['conclusion'] != 'success' for job in jobs):
-        raise ReleaseError(f'{workflow} 有缺失、跳过或失败的任务：{run["html_url"]}')
+    if not RELEASE_JOBS <= names or any(job['conclusion'] != 'success' for job in jobs):
+        raise ReleaseError(f'Release 有缺失、跳过或失败的任务：{run["html_url"]}')
     return run
 
 
@@ -323,8 +337,6 @@ def publish(root, api, args):
     if not api.token:
         raise ReleaseError('发布检查需要 GH_TOKEN / GITHUB_TOKEN 或 gh 登录，避免将权限不足误判为变量不存在')
     release_settings(api)
-    for workflow in CHECKS:
-        wait_for(lambda: successful_run(api, workflow, state['sha']), args.timeout)
     tag_ref = f'refs/tags/{state["tag"]}'
     existing = git(root, 'ls-remote', 'origin', tag_ref, tag_ref + '^{}')
     notes = tag_notes(state)
@@ -415,18 +427,11 @@ def verify_images(tag):
         digest = current
 
 
-def verify(root, api, args):
-    state = load(root)
-    if state['stage'] not in ('tagged', 'verified'):
-        raise ReleaseError('尚未推送 tag，请先运行 publish')
-    tagged = git(root, 'ls-remote', 'origin', f'refs/tags/{state["tag"]}^{{}}')
-    if not tagged or tagged.split()[0] != state['sha']:
-        raise ReleaseError('远端 tag 与固定发布 SHA 不一致，停止验收')
-    run = wait_for(lambda: successful_run(api, 'release.yml', state['sha'], branch=state['tag']), args.timeout)
-    release = api.get(f'repos/{FORK}/releases/tags/{state["tag"]}')
+def verify_artifacts(api, tag):
+    release = api.get(f'repos/{FORK}/releases/tags/{tag}')
     if release['draft'] or release['prerelease']:
         raise ReleaseError('自有版本必须是正式 Release')
-    binaries, runtimes = expected_assets(state['tag'])
+    binaries, runtimes = expected_assets(tag)
     assets = {asset['name']: asset for asset in release['assets']}
     required = binaries | runtimes | {'checksums.txt'}
     if not required <= assets.keys() or any(
@@ -437,7 +442,19 @@ def verify(root, api, args):
         for name in binaries | {'checksums.txt'}:
             download(assets[name]['browser_download_url'], directory / name)
         verify_checksums(directory, binaries)
-    verify_images(state['tag'])
+    verify_images(tag)
+    return release
+
+
+def verify(root, api, args):
+    state = load(root)
+    if state['stage'] not in ('tagged', 'verified'):
+        raise ReleaseError('尚未推送 tag，请先运行 publish')
+    tagged = git(root, 'ls-remote', 'origin', f'refs/tags/{state["tag"]}^{{}}')
+    if not tagged or tagged.split()[0] != state['sha']:
+        raise ReleaseError('远端 tag 与固定发布 SHA 不一致，停止验收')
+    run = wait_for(lambda: successful_run(api, state['sha'], state['tag']), args.timeout)
+    release = verify_artifacts(api, state['tag'])
     clean(root)
     git(root, 'fetch', '--no-tags', 'origin', BRANCH)
     remote = git(root, 'rev-parse', 'FETCH_HEAD')
@@ -460,9 +477,8 @@ def main():
     subparsers.add_parser('plan', help='只读检查上游、固定目标与下一个版本号')
     prepare = subparsers.add_parser('sync', help='固定目标、合并并推送 production；冲突时保留现场')
     prepare.add_argument('--upstream-sha', help='plan 输出的固定上游 SHA；首次同步必填')
-    release = subparsers.add_parser('publish', help='等待同 SHA 的 CI 成功后推送 tag')
+    release = subparsers.add_parser('publish', help='推送 tag，在一次 Release 内检查、构建并发布')
     release.add_argument('--sha', required=True, help='已审查的本次合并提交完整 SHA')
-    release.add_argument('--timeout', type=int, default=7200, help='每条流水线的等待上限，单位秒')
     inspect = subparsers.add_parser('verify', help='验收 Release、镜像并快进同步 VERSION')
     inspect.add_argument('--timeout', type=int, default=7200, help='发布等待上限，单位秒')
     args = parser.parse_args()

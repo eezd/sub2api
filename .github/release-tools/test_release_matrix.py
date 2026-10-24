@@ -1,4 +1,5 @@
 import argparse
+import fnmatch
 import hashlib
 import importlib.util
 import io
@@ -18,6 +19,61 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('release_matrix', Path(__file__).with_name('release_matrix.py'))
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+
+
+class ReleaseWorkflowTest(unittest.TestCase):
+    def setUp(self):
+        # BaseLoader follows Actions' string keys (PyYAML 1.1 otherwise reads on as True).
+        self.workflows = {
+            path.name: yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+            for path in (ROOT / '.github/workflows').glob('*.yml')
+        }
+
+    def test_branch_push_starts_nothing_and_custom_tag_starts_only_release(self):
+        def triggered(kind, ref):
+            result = []
+            for name, workflow in self.workflows.items():
+                events = workflow['on']
+                if 'push' not in events:
+                    continue
+                filters = events['push'] or {}
+                if kind not in filters and ({'branches', 'tags'} & filters.keys()):
+                    continue
+                if kind in filters and not any(fnmatch.fnmatchcase(ref, pattern) for pattern in filters[kind]):
+                    continue
+                result.append(name)
+            return result
+
+        self.assertEqual(triggered('branches', 'production'), [])
+        self.assertEqual(triggered('tags', 'v2.16.0-custom.1'), ['release.yml'])
+        self.assertEqual(triggered('tags', 'v2.16.0'), [])
+
+    def test_release_builds_require_all_checks_on_selected_commit(self):
+        workflow = self.workflows['release.yml']
+        jobs = workflow['jobs']
+        validations = {'ci', 'security', 'caddy', 'fullapp'}
+        for name in validations:
+            job = jobs[name]
+            callee = self.workflows[Path(job['uses']).name]
+            self.assertIn('workflow_call', callee['on'])
+            self.assertEqual(job['needs'], 'prepare')
+            self.assertEqual(job['with']['source_sha'], '${{ needs.prepare.outputs.sha }}')
+            for check in callee['jobs'].values():
+                checkouts = [s for s in check['steps'] if s.get('uses', '').startswith('actions/checkout@')]
+                self.assertTrue(checkouts)
+                for checkout in checkouts:
+                    self.assertEqual(checkout['with']['ref'], '${{ inputs.source_sha || github.sha }}')
+
+        def dependencies(name):
+            needs = jobs[name].get('needs', [])
+            if isinstance(needs, str):
+                needs = [needs]
+            return set(needs).union(*(dependencies(need) for need in needs))
+
+        for name in ('build-frontend', 'build-binaries', 'build-reauth-runtime', 'release', 'sync-version-file'):
+            self.assertTrue(validations <= dependencies(name), name)
+        self.assertTrue(any('upstream_release.verify_artifacts(' in step.get('run', '')
+                            for step in jobs['release']['steps']))
 
 
 class ReleaseMatrixTest(unittest.TestCase):
