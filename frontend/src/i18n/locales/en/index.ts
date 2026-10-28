@@ -1,6 +1,8 @@
 import chat from './chat'
 import imageWorkbench from './imageWorkbench'
+import channelOps from './channelOps'
 import ipAudit from './ipAudit'
+import traffic from './traffic'
 import connections from './connections'
 import securityRecords from './securityRecords'
 import siwc from './siwc'
@@ -29,6 +31,7 @@ import autoConfig from './autoConfig'
 export default {
   ...chat,
   ...imageWorkbench,
+  traffic,
   ipAudit,
   connections,
   securityRecords,
@@ -36,6 +39,7 @@ export default {
   autoConfig,
   priorityScheduling,
   qualityOps,
+  channelOps,
   controlledExperiments,
   accountOps,
   tokenGuard,
