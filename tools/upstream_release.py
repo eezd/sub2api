@@ -217,6 +217,41 @@ def release_settings(api):
         raise ReleaseError('SIMPLE_RELEASE=true 会覆盖全量发布要求，请先修改仓库变量')
 
 
+def supersede_failed_tag(root, api, state, args):
+    if args.supersede_failed_tag != state['tag']:
+        raise ReleaseError('必须明确指定当前失败 tag，不能替换其他发布进度')
+    head = git(root, 'rev-parse', 'HEAD')
+    if head == state['sha'] or not ancestor(root, state['sha'], head):
+        raise ReleaseError('新版本必须包含失败提交之后已提交的修复')
+    query = urllib.parse.urlencode({'head_sha': state['sha'], 'event': 'push', 'branch': state['tag']})
+    runs = api.get(f'repos/{FORK}/actions/workflows/release.yml/runs?{query}&per_page=100')['workflow_runs']
+    runs = [run for run in runs if run['head_sha'] == state['sha'] and run['head_branch'] == state['tag']]
+    if (len(runs) != 1 or runs[0]['status'] != 'completed' or
+            runs[0]['conclusion'] != 'failure' or runs[0].get('run_attempt') != 1):
+        raise ReleaseError('仅支持已结束且未重跑的唯一失败 Release；保留当前进度')
+    jobs = api.pages(f'repos/{FORK}/actions/runs/{runs[0]["id"]}/jobs', key='jobs')
+    skipped = {job['name'] for job in jobs if job['conclusion'] == 'skipped'}
+    if not {'build-frontend', 'release'} <= skipped:
+        raise ReleaseError('失败发生在构建或发布阶段，需先人工核对已有外部产物')
+    if api.get(f'repos/{FORK}/releases/tags/{state["tag"]}', optional=True):
+        raise ReleaseError('失败版本已有 Release，需先人工核对已有外部产物')
+    release_settings(api)
+    updated = plan(root, api)
+    if updated['upstream_sha'] != state['upstream_sha'] or args.upstream_sha != state['upstream_sha']:
+        raise ReleaseError('上游目标已变化，不能将修复版与新上游静默合并')
+    if updated['fork_sha'] != state['sha'] or updated['tag'] == state['tag']:
+        raise ReleaseError('远端 production 或版本号不符，保留当前进度')
+    archive = state_path(root).with_name(f'upstream-release-{state["tag"]}.json')
+    contents = json.dumps(state, ensure_ascii=False, indent=2) + '\n'
+    if archive.exists() and archive.read_text() != contents:
+        raise ReleaseError('失败发布的归档进度已存在且内容不同')
+    if not archive.exists():
+        archive.write_text(contents)
+    updated['supersedes_tag'] = state['tag']
+    save(root, updated)
+    return updated
+
+
 def sync(root, api, args):
     clean(root)
     path = state_path(root)
@@ -228,8 +263,11 @@ def sync(root, api, args):
             if args.upstream_sha and args.upstream_sha != state['upstream_sha']:
                 raise ReleaseError('已有未完成的固定目标，不能切换上游 SHA')
             if state['stage'] == 'tagged':
-                print('已有发布进度，请继续 publish / verify', flush=True)
-                return state
+                if getattr(args, 'supersede_failed_tag', None):
+                    state = supersede_failed_tag(root, api, state, args)
+                else:
+                    print('已有发布进度，请继续 publish / verify', flush=True)
+                    return state
             if state['stage'] == 'pushed':
                 head = git(root, 'rev-parse', 'HEAD')
                 if head == state['sha']:
@@ -477,6 +515,7 @@ def main():
     subparsers.add_parser('plan', help='只读检查上游、固定目标与下一个版本号')
     prepare = subparsers.add_parser('sync', help='固定目标、合并并推送 production；冲突时保留现场')
     prepare.add_argument('--upstream-sha', help='plan 输出的固定上游 SHA；首次同步必填')
+    prepare.add_argument('--supersede-failed-tag', help='明确替代检查阶段失败且未发布产物的 tag；保留旧 tag，用新编号发布已提交修复')
     release = subparsers.add_parser('publish', help='推送 tag，在一次 Release 内检查、构建并发布')
     release.add_argument('--sha', required=True, help='已审查的本次合并提交完整 SHA')
     inspect = subparsers.add_parser('verify', help='验收 Release、镜像并快进同步 VERSION')

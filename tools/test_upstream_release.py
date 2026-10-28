@@ -241,6 +241,66 @@ class UpstreamReleaseTests(unittest.TestCase):
         self.assertEqual(run(self.origin, 'rev-parse', f'refs/tags/{state["tag"]}'), tag_id)
         self.assertEqual(release.load(self.local)['stage'], 'tagged')
 
+    def failed_release_with_fix(self):
+        state = self.prepare()
+        release.publish(self.local, self.api, argparse.Namespace(sha=state['sha']))
+        self.api.successful_release(state['sha'], state['tag'])
+        self.api.runs['release.yml'][0].update(conclusion='failure', run_attempt=1)
+        self.api.jobs['1'] = [{'name': name, 'conclusion': 'skipped'}
+                              for name in ('build-frontend', 'release')]
+        (self.local / 'feature.txt').write_text('安全修复\n')
+        run(self.local, 'commit', '-am', 'fix: upgrade vulnerable dependency')
+        args = argparse.Namespace(upstream_sha=self.api.sha, supersede_failed_tag=state['tag'])
+        return state, args
+
+    def test_failed_checks_can_be_superseded_without_reusing_tag_or_run(self):
+        previous, args = self.failed_release_with_fix()
+        tag_id = run(self.origin, 'rev-parse', previous['tag'])
+        updated = release.sync(self.local, self.api, args)
+        self.assertEqual(updated['tag'], 'v2.13.0-custom.2')
+        self.assertEqual(updated['supersedes_tag'], previous['tag'])
+        self.assertEqual(run(self.origin, 'rev-parse', previous['tag']), tag_id)
+        self.assertEqual(run(self.origin, 'rev-parse', 'production'), updated['sha'])
+        archive = release.state_path(self.local).with_name('upstream-release-' + previous['tag'] + '.json')
+        self.assertEqual(json.loads(archive.read_text())['sha'], previous['sha'])
+        self.assertEqual(len(self.api.runs['release.yml']), 1)
+        release.publish(self.local, self.api, argparse.Namespace(sha=updated['sha']))
+        self.assertEqual(run(self.origin, 'rev-parse', updated['tag'] + '^{commit}'), updated['sha'])
+
+    def test_superseding_requires_finished_failure_and_no_published_artifacts(self):
+        previous, args = self.failed_release_with_fix()
+        for status, conclusion, attempt in [('in_progress', None, 1), ('completed', 'success', 1),
+                                             ('completed', 'failure', 2)]:
+            self.api.runs['release.yml'][0].update(status=status, conclusion=conclusion, run_attempt=attempt)
+            with self.assertRaisesRegex(release.ReleaseError, '唯一失败 Release'):
+                release.sync(self.local, self.api, args)
+        self.api.runs['release.yml'][0].update(status='completed', conclusion='failure', run_attempt=1)
+        self.api.jobs['1'][0]['conclusion'] = 'success'
+        with self.assertRaisesRegex(release.ReleaseError, '外部产物'):
+            release.sync(self.local, self.api, args)
+        self.api.jobs['1'][0]['conclusion'] = 'skipped'
+        self.api.published = {'draft': True, 'assets': []}
+        with self.assertRaisesRegex(release.ReleaseError, '已有 Release'):
+            release.sync(self.local, self.api, args)
+        self.assertEqual(release.load(self.local)['tag'], previous['tag'])
+        self.assertEqual(run(self.origin, 'rev-parse', 'production'), previous['sha'])
+
+    def test_superseding_requires_new_fix_and_pinned_remote(self):
+        previous, args = self.failed_release_with_fix()
+        args.supersede_failed_tag = 'v2.13.0-custom.99'
+        with self.assertRaisesRegex(release.ReleaseError, '当前失败 tag'):
+            release.sync(self.local, self.api, args)
+        args.supersede_failed_tag = previous['tag']
+        with patch.object(release, 'plan', return_value={**previous, 'upstream_sha': 'b' * 40}):
+            with self.assertRaisesRegex(release.ReleaseError, '上游目标已变化'):
+                release.sync(self.local, self.api, args)
+        with patch.object(release, 'plan', return_value={**previous, 'fork_sha': 'b' * 40}):
+            with self.assertRaisesRegex(release.ReleaseError, '远端 production'):
+                release.sync(self.local, self.api, args)
+        run(self.local, 'checkout', '--detach', previous['sha'])
+        with self.assertRaisesRegex(release.ReleaseError, '已提交的修复'):
+            release.sync(self.local, self.api, args)
+
     def test_remote_movement_prevents_publication(self):
         state = self.prepare()
         clone = self.directory / 'concurrent'
