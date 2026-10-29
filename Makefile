@@ -1,6 +1,17 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/admin/settings/__tests__/AdminAccessKeysSettings.spec.ts \
+	src/views/admin/__tests__/ChannelsView.webSearchEmulation.spec.ts \
+	src/api/__tests__/admin.accounts.grokModelDiagnostics.spec.ts \
+	src/components/account/__tests__/GrokModelDiagnosticsPanel.spec.ts \
+	src/components/account/__tests__/EditAccountModal.grokUpstream.spec.ts \
+	src/components/account/__tests__/ModelWhitelistSelector.spec.ts \
+	src/components/keys/__tests__/UseKeyModal.spec.ts \
+	src/views/admin/__tests__/ProfitOperationsView.spec.ts \
+	src/views/admin/__tests__/UpstreamChannelOperationsView.spec.ts \
+	src/views/admin/__tests__/PrioritySchedulingView.spec.ts \
+	src/views/admin/__tests__/DashboardView.spec.ts \
 	src/api/__tests__/chat.spec.ts \
 	src/utils/__tests__/chatPDF.spec.ts \
 	src/views/user/__tests__/ChatView.spec.ts \

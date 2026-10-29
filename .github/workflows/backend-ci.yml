@@ -104,6 +104,24 @@ jobs:
       - name: Integration tests
         working-directory: backend
         run: make test-integration
+      - name: Redis 6.0 and 7.4 compatibility regressions
+        working-directory: backend
+        env:
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          for version in 6.0.20 7.4.12; do
+            ISSUE_582_REDIS_VERSION="${version%.*}" SUB2API_TEST_REDIS_IMAGE="redis:${version}-alpine" go test -race -tags=integration ./internal/repository -run '^(TestIssue582|TestUserMsgQueueCacheSuite|TestConcurrencyCacheSuite|TestSchedulerCache|TestSchedulerSnapshotOutboxReplay)' -count=1 -v | tee "$RUNNER_TEMP/redis-${version}.log"
+            ! grep -E -- '--- SKIP: TestIssue582|no tests to run' "$RUNNER_TEMP/redis-${version}.log"
+          done
+      - name: Redis session and scheduler race regressions
+        working-directory: backend
+        run: |
+          go test -race -tags=unit ./internal/pkg/redissession ./internal/pkg/rediscompat ./internal/iprisk ./internal/serverless -count=1
+          go test -race -tags=unit ./internal/repository -run '^Test(Scheduler|APIKeyCacheIncrementCreateCount)' -count=1
+      - name: Ownership and scheduling race regressions
+        working-directory: backend
+        run: go test -race -tags=unit ./internal/service ./internal/server/middleware -run 'TestOpenAIModelsSingleflight|TestScopedAdmin|TestPanelRate|TestAPIKeyAdmissionModels|TestGrokCatalog|TestPriorityLatencyAvailability' -count=1
       - name: Timing regression tests with race detector
         working-directory: backend
         run: go test -race ./internal/pkg/requesttiming ./internal/server/middleware ./internal/repository -run 'Test(FinishAndBinding|ConcurrentCallbacks|HTTPTraceKeeps|RequestTiming|TimingWrite|TimingBinding|CompletedStreamCleanup|HeartbeatFlush)' -count=1

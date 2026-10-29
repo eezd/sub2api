@@ -1,5 +1,7 @@
 import chat from './chat'
 import imageWorkbench from './imageWorkbench'
+import profitOps from './profitOps'
+import upstreamOps from './upstreamOps'
 import channelOps from './channelOps'
 import ipAudit from './ipAudit'
 import traffic from './traffic'
@@ -14,6 +16,7 @@ import tokenGuard from './tokenGuard'
 import pelicanTests from './pelicanTests'
 import modelTrace from './modelTrace'
 import tokenGuardV2 from './tokenGuardV2'
+import adminAccessKeys from './adminAccessKeys'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -40,6 +43,8 @@ export default {
   priorityScheduling,
   qualityOps,
   channelOps,
+  upstreamOps,
+  profitOps,
   controlledExperiments,
   accountOps,
   tokenGuard,
@@ -47,6 +52,7 @@ export default {
   modelTrace,
   tokenGuardV2,
   requestTiming,
+  adminAccessKeys,
   ...landing,
   ...common,
   ...dashboard,
