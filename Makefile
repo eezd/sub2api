@@ -1,6 +1,7 @@
 .PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
+	src/i18n/__tests__/translationSecurity.spec.ts \
 	src/components/admin/settings/__tests__/AdminAccessKeysSettings.spec.ts \
 	src/views/admin/__tests__/ChannelsView.webSearchEmulation.spec.ts \
 	src/api/__tests__/admin.accounts.grokModelDiagnostics.spec.ts \
