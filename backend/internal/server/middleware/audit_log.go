@@ -52,7 +52,7 @@ func SkipAudit(c *gin.Context) {
 // scalar, non-secret operation summaries. Request bodies and arbitrary maps
 // are never accepted through this channel.
 var auditExtraAllowedKeys = map[string]struct{}{
-	"source": {}, "reason_code": {}, "readback": {}, "remaining_count": {}, "target_user_id": {},
+	"source": {}, "target_channel_id": {}, "reason_code": {}, "readback": {}, "remaining_count": {}, "target_user_id": {},
 	"anonymous_api_enabled": {},
 	"result":                {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
@@ -166,11 +166,15 @@ var auditActionOverrides = map[string]string{
 var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/image-workbench/tasks":  {},
 	"POST /api/v1/image-workbench/assets": {},
-	// 聊天正文和私人文件不应复制到管理审计日志。
+	// Keep private chat bodies and files out of administrative audit logs.
 	"POST /api/v1/chat/conversations/:id/turns":                 {},
 	"POST /api/v1/chat/conversations/:id/attachments":           {},
 	"PUT /api/v1/chat/conversations/:id/messages/:message":      {},
 	"PATCH /api/v1/chat/conversations/:id":                      {},
+	"POST /api/v1/admin/upstream-channels":                      {},
+	"PUT /api/v1/admin/upstream-channels/:id":                   {},
+	"DELETE /api/v1/admin/upstream-channels/:id":                {},
+	"PUT /api/v1/admin/upstream-channel-bindings":               {},
 	"POST /api/v1/admin/settings/ip-audit/release":              {},
 	"PUT /api/v1/admin/settings/ip-risk":                        {},
 	"POST /api/v1/admin/settings/ip-risk/anonymous-unban":       {},
