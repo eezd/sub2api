@@ -30,6 +30,9 @@ RELEASE_CHECKS = {
     'security': ('security-scan.yml', {'backend-security', 'frontend-security'}),
     'caddy': ('multihost-caddy.yml', {'real-proxy-responses'}),
     'fullapp': ('multihost-fullapp.yml', {'isolated-real-applications'}),
+    'account-performance': ('account-performance-regressions.yml', {'regression', 'regression-red (evaluation)', 'regression-red (export)'}),
+    'key-risk': ('key-risk-postgres.yml', {'postgres'}),
+    'vip-credit': ('vip-auto-credit.yml', {'postgres-repository'}),
 }
 RELEASE_JOBS = {'prepare', 'build-frontend', 'release', 'sync-version-file'} | {
     f'{caller} / {job}' for caller, (_, jobs) in RELEASE_CHECKS.items() for job in jobs

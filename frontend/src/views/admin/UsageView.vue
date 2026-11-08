@@ -129,6 +129,7 @@
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
           <UsageTable
             enable-timing-details
+            :notice-user-id="props.observerMode ? undefined : authStore.user?.id"
             flat
             :data="usageLogs"
             :loading="loading"
@@ -215,6 +216,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, provide } from 
 import { observerUsageAPI } from '@/api/observerUsage'
 import { observerUsageContext } from '@/components/admin/usage/observerUsageContext'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
 import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
@@ -244,6 +246,7 @@ const props = withDefaults(defineProps<{ observerMode?: boolean }>(), { observer
 provide(observerUsageContext, props.observerMode)
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -724,9 +727,6 @@ const allColumns = computed(() => [
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
-  { key: 'content_reasoning_first_ms', label: t('latencyObservability.reasoning_first_ms'), sortable: false },
-  { key: 'content_visible_text_first_ms', label: t('latencyObservability.visible_text_first_ms'), sortable: false },
-  { key: 'content_response_byte_first_ms', label: t('latencyObservability.response_byte_first_ms'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'request_id', label: t('admin.usage.requestId'), sortable: false },
   { key: 'upstream_request_id', label: t('admin.usage.upstreamRequestId'), sortable: false },

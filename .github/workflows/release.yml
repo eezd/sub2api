@@ -113,8 +113,26 @@ jobs:
     with:
       source_sha: ${{ needs.prepare.outputs.sha }}
 
+  account-performance:
+    needs: prepare
+    uses: ./.github/workflows/account-performance-regressions.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  key-risk:
+    needs: prepare
+    uses: ./.github/workflows/key-risk-postgres.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  vip-credit:
+    needs: prepare
+    uses: ./.github/workflows/vip-auto-credit.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
   build-frontend:
-    needs: [prepare, ci, security, caddy, fullapp]
+    needs: [prepare, ci, security, caddy, fullapp, account-performance, key-risk, vip-credit]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -224,7 +242,7 @@ jobs:
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   build-reauth-runtime:
-    needs: [prepare, ci, security, caddy, fullapp]
+    needs: [prepare, ci, security, caddy, fullapp, account-performance, key-risk, vip-credit]
     strategy:
       fail-fast: false
       matrix:
