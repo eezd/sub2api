@@ -102,7 +102,11 @@ export default {
       autoRefresh: 'Auto Refresh',
       enableAutoRefresh: 'Enable auto refresh',
       autoRefreshUpstreamModels: 'Sync upstream models',
-      autoRefreshUpstreamModelsHint: 'While auto refresh is enabled, sync schedulable accounts on the current page at most once per account every 5 minutes. Remove delisted models and retain valid aliases; keep existing settings if discovery fails.',
+      autoRefreshUpstreamModelsAccountTypes: {
+        oauth: 'OAuth accounts (including Setup Token and service accounts)',
+        apikey: 'API Key accounts'
+      },
+      autoRefreshUpstreamModelsHint: 'While auto refresh is enabled, sync schedulable accounts of the selected types on the current page at most once per account every 5 minutes. Remove delisted models and retain valid aliases; keep existing settings if discovery fails.',
       autoRefreshUpstreamModelsResult: 'Last sync: {changed} updated, {failed} failed, {skipped} skipped',
       refreshInterval5s: '5 seconds',
       refreshInterval10s: '10 seconds',
@@ -204,6 +208,12 @@ export default {
       groupCountTotal: '{count} groups total',
       platforms: {
         anthropic: 'Anthropic',
+        antigravityGemini5h: 'G·5h',
+        antigravityGeminiWeekly: 'G·wk',
+        antigravityArgon5h: 'A·5h',
+        antigravityArgonWeekly: 'A·wk',
+        antigravityOther5h: 'C·5h',
+        antigravityOtherWeekly: 'C·wk',
         claude: 'Claude',
         openai: 'OpenAI',
         gemini: 'Gemini',

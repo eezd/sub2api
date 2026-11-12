@@ -102,7 +102,11 @@ export default {
       autoRefresh: '自动刷新',
       enableAutoRefresh: '启用自动刷新',
       autoRefreshUpstreamModels: '同步上游模型',
-      autoRefreshUpstreamModelsHint: '开启自动刷新后，同步当前页可调度账号，每个账号最多每 5 分钟一次。移除已下架模型，保留有效别名；同步失败时保留原配置。',
+      autoRefreshUpstreamModelsAccountTypes: {
+        oauth: 'OAuth 账号（含 Setup Token 和服务账号）',
+        apikey: 'API Key 账号'
+      },
+      autoRefreshUpstreamModelsHint: '开启自动刷新后，仅同步当前页已勾选类型的可调度账号，每个账号最多每 5 分钟一次。移除已下架模型，保留有效别名；同步失败时保留原配置。',
       autoRefreshUpstreamModelsResult: '上次同步：{changed} 个更新，{failed} 个失败，{skipped} 个跳过',
       refreshInterval5s: '5 秒',
       refreshInterval10s: '10 秒',
@@ -483,6 +487,12 @@ export default {
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
+        antigravityGemini5h: 'G·5h',
+        antigravityGeminiWeekly: 'G·周',
+        antigravityArgon5h: 'A·5h',
+        antigravityArgonWeekly: 'A·周',
+        antigravityOther5h: 'C·5h',
+        antigravityOtherWeekly: 'C·周',
         claude: 'Claude',
         openai: 'OpenAI',
         anthropic: 'Anthropic',

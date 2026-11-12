@@ -51,7 +51,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
     def test_release_builds_require_all_checks_on_selected_commit(self):
         workflow = self.workflows['release.yml']
         jobs = workflow['jobs']
-        validations = {'ci', 'security', 'caddy', 'fullapp'}
+        validations = {'ci', 'security', 'caddy', 'fullapp', 'account-performance', 'key-risk', 'vip-credit'}
         for name in validations:
             job = jobs[name]
             callee = self.workflows[Path(job['uses']).name]
@@ -62,7 +62,14 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 checkouts = [s for s in check['steps'] if s.get('uses', '').startswith('actions/checkout@')]
                 self.assertTrue(checkouts)
                 for checkout in checkouts:
-                    self.assertEqual(checkout['with']['ref'], '${{ inputs.source_sha || github.sha }}')
+                    self.assertIn(checkout['with']['ref'], (
+                        '${{ inputs.source_sha || github.sha }}',
+                        '${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}',
+                    ))
+            expected_sha = callee.get('env', {}).get('EXPECTED_HEAD_SHA')
+            if expected_sha is not None:
+                self.assertEqual(expected_sha,
+                                 '${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}')
 
         def dependencies(name):
             needs = jobs[name].get('needs', [])
