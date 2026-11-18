@@ -12,7 +12,7 @@ import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import type { User } from '@/types'
 
 const smartOpsPaths = ['/admin/lottery', '/admin/auto-config', '/admin/priority-scheduling',
-  '/admin/channel-operations', '/admin/profit-operations', '/admin/account-quality', '/admin/controlled-experiments', '/admin/account-ops', '/admin/token-guard', '/admin/token-guard-v2', '/admin/pelican-tests', '/admin/group-cache-tests']
+  '/admin/qqbot/overview', '/admin/channel-operations', '/admin/profit-operations', '/admin/account-quality', '/admin/controlled-experiments', '/admin/account-ops', '/admin/token-guard', '/admin/token-guard-v2', '/admin/pelican-tests', '/admin/group-cache-tests']
 
 async function mountAt(path: string) {
   const router = createRouter({
@@ -65,6 +65,7 @@ describe('SmartOpsNav', () => {
     useAuthStore().user = { id: 42, role: 'observer' } as User
     const wrapper = await mountAt('/admin/pelican-tests')
     expect(hrefs(wrapper)).not.toContain('/admin/ai-ops')
+    expect(hrefs(wrapper)).not.toContain('/admin/qqbot/overview')
   })
 
   it('keeps the AI notice in the normal nav flow so dismissing it reserves no space', async () => {
@@ -95,6 +96,13 @@ describe('SmartOpsNav', () => {
     expect(reloaded.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(false)
     expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.protocolFeatureSwitches)).toBe(true)
     reloaded.unmount()
+  })
+
+  it('uses the provider reconciliation notice on the existing profit entry', async () => {
+    const wrapper = await mountAt('/admin/profit-operations')
+    await wrapper.get('a[href="/admin/profit-operations"] + [data-testid="new-feature-badge"]').trigger('click')
+    expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.providerProfit)).toBe(true)
+    wrapper.unmount()
   })
 
   it('shares quality rest dismissal across navigation entries without dismissing other features', async () => {

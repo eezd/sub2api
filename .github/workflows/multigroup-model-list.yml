@@ -1,6 +1,7 @@
 name: Multi-group model catalogue
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [production]
     paths:

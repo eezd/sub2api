@@ -134,6 +134,8 @@ jobs:
   build-frontend:
     needs: [prepare, ci, security, caddy, fullapp, account-performance, key-risk, vip-credit]
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v6
         with:

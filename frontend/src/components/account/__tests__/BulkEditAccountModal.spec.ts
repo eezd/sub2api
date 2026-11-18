@@ -155,6 +155,8 @@ describe('BulkEditAccountModal', () => {
       openai_excel_bps_proxy_source: 'mihomo',
       openai_excel_bps_cache_creation_as_input: false,
       openai_excel_bps_ignore_encrypted_content: false,
+      openai_excel_bps_web_search: false,
+      openai_excel_bps_web_search_auto: false,
       openai_excel_bps_omit_unsupported_tools: false,
       openai_excel_bps_auto_disable_on_403: false,
       openai_excel_bps_auto_recover_on_403: false,
@@ -662,7 +664,8 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        openai_passthrough: true
+        openai_passthrough: true,
+        openai_passthrough_model_filter: false
       }
     })
   })
@@ -1245,6 +1248,7 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
         openai_passthrough: false,
+        openai_passthrough_model_filter: false,
         openai_oauth_passthrough: false
       }
     })
@@ -1265,7 +1269,8 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        openai_passthrough: true
+        openai_passthrough: true,
+        openai_passthrough_model_filter: false
       }
     })
     expect(wrapper.text()).toContain('admin.accounts.openai.modelRestrictionDisabledByPassthrough')
@@ -1296,6 +1301,22 @@ describe('BulkEditAccountModal', () => {
     await flushPromises()
     expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
     expect(showError).toHaveBeenCalledWith('admin.accounts.bulkEdit.noSelection')
+  })
+
+  it('can bulk-enable passthrough model filtering and submit an explicit whitelist', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    await wrapper.get('#bulk-edit-openai-passthrough-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-passthrough-toggle').trigger('click')
+    await wrapper.get('[data-testid="bulk-openai-passthrough-model-filter"]').setValue(true)
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    wrapper.findComponent({ name: 'ModelWhitelistSelector' }).vm.$emit('update:modelValue', ['qwen3.8-max'])
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: { openai_passthrough: true, openai_passthrough_model_filter: true },
+      credentials: { model_mapping: { 'qwen3.8-max': 'qwen3.8-max' } }
+    })
   })
 
   it('filtered-results 模式下应提交 filters 而不是 account_ids', async () => {
@@ -1409,13 +1430,14 @@ describe('BulkEditAccountModal', () => {
 
 describe('bulk BPS defaults integration', () => {
   it('applies saved default selections when enabling the bulk BPS edit', async () => {
-    vi.mocked(getAutoConfig).mockResolvedValueOnce({ excel_bps: defaultExcelBPSDefaults() } as Awaited<ReturnType<typeof getAutoConfig>>)
+    vi.mocked(getAutoConfig).mockResolvedValueOnce({ excel_bps: { ...defaultExcelBPSDefaults(), web_search: true, web_search_auto: true } } as Awaited<ReturnType<typeof getAutoConfig>>)
     const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
     await wrapper.get('#bulk-edit-excel-bps-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-excel-bps-defaults-toggle"]').trigger('click'); await flushPromises()
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent'); await flushPromises()
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenLastCalledWith([1, 2], expect.objectContaining({ extra: expect.objectContaining({
       openai_excel_bps: true, openai_excel_bps_ignore_encrypted_content: true,
+      openai_excel_bps_web_search: true, openai_excel_bps_web_search_auto: true,
       openai_excel_bps_auto_disable_on_403: true, openai_excel_bps_cache_creation_as_input: true
     }) }))
     wrapper.unmount()

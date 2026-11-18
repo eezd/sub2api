@@ -6,6 +6,7 @@ on:
       source_sha:
         required: true
         type: string
+  workflow_dispatch:
   pull_request:
     paths:
       - 'backend/internal/service/account_performance*'

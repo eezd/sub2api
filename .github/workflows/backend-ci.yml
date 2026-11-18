@@ -8,15 +8,49 @@ on:
         description: Exact application commit selected by the release workflow
         type: string
         required: true
+  workflow_dispatch:
+
+# PR updates replace older runs; other events keep a separate group per commit.
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+  actions: read
 
 env:
   EXPECTED_HEAD_SHA: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shell: ${{ steps.select.outputs['shell'] }}
+      unit-test: ${{ steps.select.outputs['unit-test'] }}
+      integration-test: ${{ steps.select.outputs['integration-test'] }}
+      frontend: ${{ steps.select.outputs['frontend'] }}
+      golangci-lint: ${{ steps.select.outputs['golangci-lint'] }}
+      release-helpers: ${{ steps.select.outputs['release-helpers'] }}
+      prism-adapter: ${{ steps.select.outputs['prism-adapter'] }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install selector dependency
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Select affected checks
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/select_jobs.py backend-ci.yml
+
   shell:
+    needs: changes
+    if: needs.changes.outputs['shell'] == 'true'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v6
@@ -34,8 +68,88 @@ jobs:
           /bin/sh deploy/tests/docker-runtime-resources-test.sh
           /bin/sh deploy/test-caddyfile-cache.sh
 
-  test:
+  unit-test:
+    needs: changes
+    if: needs.changes.outputs['unit-test'] == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - name: Verify Go version
+        run: go version | grep -q 'go1.27.4'
+      - name: Resolve Go cache paths and bootstrap key
+        id: go-cache
+        run: |
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          version="$(go env GOVERSION)"
+          arch="$(node -p process.arch)"
+          echo "bootstrap=setup-go-${RUNNER_OS}-${arch}-${ImageOS}-go-${version#go}-" >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-tests-v2-${{ runner.os }}-${{ runner.arch }}-unit-${{ matrix.shard }}-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-${{ env.EXPECTED_HEAD_SHA }}
+          restore-keys: |
+            go-tests-v2-${{ runner.os }}-${{ runner.arch }}-unit-${{ matrix.shard }}-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-
+            ${{ steps.go-cache.outputs.bootstrap }}${{ hashFiles('backend/go.sum') }}
+            ${{ steps.go-cache.outputs.bootstrap }}
+      - name: Install Redis for isolated snapshot adapter checks
+        run: |
+          bash .github/scripts/ci-ubuntu-mirrors.sh
+          if ! command -v redis-server >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends redis-server
+          fi
+          redis-server --version
+      - name: Unit tests with timings
+        run: python3 .github/ci/go_tests.py unit --shard ${{ matrix.shard }} --total ${{ strategy.job-total }} --output "$RUNNER_TEMP/go-test-results"
+      - name: Upload unit test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-unit-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          retention-days: 14
+          if-no-files-found: warn
+
+  integration-test:
+    needs: changes
+    if: needs.changes.outputs['integration-test'] == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fixture
+          POSTGRES_PASSWORD: fixture
+          POSTGRES_DB: shadow_audit
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fixture -d shadow_audit"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['16379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -50,12 +164,29 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
       - name: Verify Go version
+        run: go version | grep -q 'go1.27.4'
+      - name: Resolve Go cache paths and bootstrap key
+        id: go-cache
         run: |
-          go version | grep -q 'go1.27.4'
-      - name: Install Redis for isolated snapshot adapter checks
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          version="$(go env GOVERSION)"
+          arch="$(node -p process.arch)"
+          echo "bootstrap=setup-go-${RUNNER_OS}-${arch}-${ImageOS}-go-${version#go}-" >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-tests-v2-${{ runner.os }}-${{ runner.arch }}-integration-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-${{ env.EXPECTED_HEAD_SHA }}
+          restore-keys: |
+            go-tests-v2-${{ runner.os }}-${{ runner.arch }}-integration-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-
+            ${{ steps.go-cache.outputs.bootstrap }}${{ hashFiles('backend/go.sum') }}
+            ${{ steps.go-cache.outputs.bootstrap }}
+      - name: Install Redis for isolated integration fixtures
         run: |
           bash .github/scripts/ci-ubuntu-mirrors.sh
           if ! command -v redis-server >/dev/null; then
@@ -63,59 +194,23 @@ jobs:
             sudo apt-get install -y --no-install-recommends redis-server
           fi
           redis-server --version
-      - name: Verify scope conflict regression against original handlers
-        if: github.head_ref == 'fix/quality-template-switch-conflicts' || github.ref_name == 'fix/quality-template-switch-conflicts'
-        shell: bash
-        run: |
-          set -euo pipefail
-          target=backend/internal/handler/admin/scheduled_test_handler.go
-          cp "$target" "$RUNNER_TEMP/quality-current-handler.go"
-          trap 'cp "$RUNNER_TEMP/quality-current-handler.go" "$target"' EXIT
-          git fetch --no-tags --depth=1 origin 9fcfe25d600a331abcc28a1788e597e5542d4cd3
-          git show 9fcfe25d600a331abcc28a1788e597e5542d4cd3:"$target" > "$target"
-          set +e
-          (cd backend && go test ./internal/handler/admin -run '^TestQualityScopeConflictsUse409ForUpdateAndDelete$' -count=1) > "$RUNNER_TEMP/quality-red.log" 2>&1
-          result=$?
-          set -e
-          cat "$RUNNER_TEMP/quality-red.log"
-          test "$result" -ne 0
-          grep -q 'FAIL: TestQualityScopeConflictsUse409ForUpdateAndDelete' "$RUNNER_TEMP/quality-red.log"
-          grep -Eq 'actual.*(400|500)' "$RUNNER_TEMP/quality-red.log"
-      - name: Verify user enable reason regression against original handler
-        if: github.head_ref == 'fix/moderation-user-quick-enable' || github.ref_name == 'fix/moderation-user-quick-enable'
-        shell: bash
-        run: |
-          set -euo pipefail
-          target=backend/internal/handler/admin/user_handler.go
-          cp "$target" "$RUNNER_TEMP/user-enable-current-handler.go"
-          trap 'cp "$RUNNER_TEMP/user-enable-current-handler.go" "$target"' EXIT
-          git fetch --no-tags --depth=1 origin bccac61c757f2c04a2360063c4057db2b270c856
-          git show bccac61c757f2c04a2360063c4057db2b270c856:"$target" > "$target"
-          set +e
-          (cd backend && go test -tags=unit ./internal/handler/admin -run '^TestUserQuickEnableReasonLimit$' -count=1) > "$RUNNER_TEMP/user-enable-red.log" 2>&1
-          result=$?
-          set -e
-          cat "$RUNNER_TEMP/user-enable-red.log"
-          test "$result" -ne 0
-          grep -q 'FAIL: TestUserQuickEnableReasonLimit' "$RUNNER_TEMP/user-enable-red.log"
-          grep -q 'actual.*200' "$RUNNER_TEMP/user-enable-red.log"
-      - name: Verify user enable regressions
-        if: github.head_ref == 'fix/moderation-user-quick-enable' || github.ref_name == 'fix/moderation-user-quick-enable'
-        working-directory: backend
-        run: go test -tags=unit ./internal/handler/admin ./internal/server/middleware ./internal/service ./internal/repository -run 'TestUserQuickEnable|TestAdminService_UserQuickEnable|TestModerationRecoveryUnbanDoesNotClaimOtherDisable' -count=1 -v
-      - name: Usage trend local bucket regressions
-        working-directory: backend
-        run: go test -tags=integration ./internal/repository -run '^TestUsageTrendAggregateTimezone' -count=1 -v
-      - name: Unit tests
-        working-directory: backend
-        run: make test-unit
-      - name: Integration tests
-        working-directory: backend
+      - name: Integration tests with timings
         env:
+          PROMPT_AUDIT_TEST_POSTGRES_DSN: 'postgres://fixture:fixture@127.0.0.1:15432/shadow_audit?sslmode=disable'
+          PROMPT_AUDIT_TEST_REDIS_ADDR: '127.0.0.1:16379'
           # Keep real network timing fixtures isolated from other package/DB workloads.
           # Every integration package and its existing assertions still run.
           GOFLAGS: '-p=1'
-        run: make test-integration
+        run: python3 .github/ci/go_tests.py integration --output "$RUNNER_TEMP/go-test-results"
+      - name: Upload integration test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-integration-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Redis 6.0 and 7.4 compatibility regressions
         working-directory: backend
         env:
@@ -138,8 +233,41 @@ jobs:
         working-directory: backend
         run: go test -race ./internal/pkg/requesttiming ./internal/server/middleware ./internal/repository -run 'Test(FinishAndBinding|ConcurrentCallbacks|HTTPTraceKeeps|RequestTiming|TimingWrite|TimingBinding|CompletedStreamCleanup|HeartbeatFlush)' -count=1
 
+  # Preserve the existing check name and reject unsuccessful selected suites.
+  # An obsolete cancelled workflow must not queue this gate and block its successor.
+  test:
+    needs: [changes, unit-test, integration-test]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all selected test jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          UNIT_SELECTED: ${{ needs.changes.outputs['unit-test'] }}
+          UNIT_RESULT: ${{ needs.unit-test.result }}
+          INTEGRATION_SELECTED: ${{ needs.changes.outputs['integration-test'] }}
+          INTEGRATION_RESULT: ${{ needs.integration-test.result }}
+        run: |
+          test "$CHANGES_RESULT" = success
+          for suite in UNIT INTEGRATION; do
+            selected="${suite}_SELECTED"
+            result="${suite}_RESULT"
+            if [[ "${!selected}" == true ]]; then
+              test "${!result}" = success || exit 1
+            elif [[ "${!selected}" == false ]]; then
+              test "${!result}" = skipped || exit 1
+            else
+              exit 1
+            fi
+          done
+
   frontend:
-    runs-on: ${{ vars.SUB2API_SUPPLEMENTARY_RUNNER || 'ubuntu-latest' }}
+    needs: changes
+    if: needs.changes.outputs['frontend'] == 'true'
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v6
         with:
@@ -166,6 +294,8 @@ jobs:
         run: pnpm test:run src/utils/__tests__/latencyHealth.spec.ts src/utils/__tests__/requestTimingHealth.spec.ts
 
   golangci-lint:
+    needs: changes
+    if: needs.changes.outputs['golangci-lint'] == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -190,6 +320,8 @@ jobs:
           working-directory: backend
 
   release-helpers:
+    needs: changes
+    if: needs.changes.outputs['release-helpers'] == 'true'
     runs-on: ${{ vars.SUB2API_SUPPLEMENTARY_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
@@ -223,6 +355,8 @@ jobs:
       - run: python -m unittest discover -s deploy/connection-diagnostics -p 'test_collect.py'
 
   prism-adapter:
+    needs: changes
+    if: needs.changes.outputs['prism-adapter'] == 'true'
     runs-on: ${{ vars.SUB2API_SUPPLEMENTARY_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6

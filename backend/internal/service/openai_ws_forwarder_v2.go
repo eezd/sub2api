@@ -522,6 +522,15 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	if !isControlledExperiment(ctx) {
 		if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
+			var modelErr *openAIWSModelRejectionError
+			if errors.As(err, &modelErr) {
+				// Prewarm was rejected; the generation payload has not been sent.
+				if wsHeaders.Get(openAIWSTurnStateHeader) == "" && openAIWSModelFailureCanReplay(ctx, payloadAsJSONBytes(payload)) {
+					return nil, s.newOpenAIWSModelFailoverError(account, modelErr.payload)
+				}
+				c.Data(openAIWSModelFailureStatus(account, modelErr.payload), "application/json", modelErr.payload)
+				return nil, err
+			}
 			cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
 			return nil, err
 		}
@@ -944,6 +953,9 @@ readLoop:
 		}
 		imageCounter.AddSSEData(message)
 
+		// Snapshot before this event is flushed or emitted. A failure frame itself
+		// is not client output, so a before_stream rule must not see it as mid-stream.
+		wsOutputStarted := wroteDownstream
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
 		}
@@ -955,9 +967,16 @@ readLoop:
 				// account failover for a request the provider already received.
 				flushBufferedStreamEvents("error_event")
 			}
-			s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+			eventCtx := openAIWSForwardStreamPhaseContext(openAI429LeaseObservation(ctx, lease), wsOutputStarted, message)
+			modelUnavailable := s.handleOpenAIWSErrorEventTransientFailure(eventCtx, account, mappedModel, lease.HandshakeHeaders(), message)
+			// Legacy SSE can buffer response.created/tool events before client output.
+			// Their presence must not grant a new model-error replay opportunity.
+			if modelUnavailable && !wroteDownstream && len(bufferedStreamEvents) == 0 && wsHeaders.Get(openAIWSTurnStateHeader) == "" && openAIWSModelFailureCanReplay(ctx, payloadAsJSONBytes(payload)) {
+				lease.MarkBroken()
+				return nil, s.newOpenAIWSModelFailoverError(account, message)
+			}
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
-			s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw, mappedModel)
+			s.persistOpenAIWSRateLimitSignal(eventCtx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw, mappedModel)
 			errMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(errMsgRaw))
 			if errMsg == "" {
 				errMsg = "Upstream websocket error"
@@ -1032,6 +1051,9 @@ readLoop:
 					},
 				})
 			}
+			if openAIWSModelFailureStatus(account, message) != 0 {
+				return nil, ErrOpenAIWSModelUnavailable
+			}
 			return nil, fmt.Errorf("openai ws error event: %s", errMsg)
 		}
 
@@ -1082,7 +1104,19 @@ readLoop:
 			if !clientDisconnected {
 				markOpenAIWSClientVisibleFailure(c, eventType, message)
 			}
-			upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+			upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(openAIWSForwardStreamPhaseContext(openAI429LeaseObservation(ctx, lease), wsOutputStarted, message), account, mappedModel, lease.HandshakeHeaders(), message)
+			if openAIWSModelFailureStatus(account, message) != 0 {
+				lease.MarkBroken()
+				flushStreamWriter(true)
+				if !reqStream {
+					c.Data(openAIWSModelFailureStatus(account, message), "application/json", message)
+				}
+				result := resultWithUsage()
+				result.ObservedUsageOnError = true
+				result.ImageCount = imageCounter.Count()
+				result.ImageOutputSizes = imageCounter.Sizes()
+				return result, ErrOpenAIWSModelUnavailable
+			}
 			// A terminal event must be the final JSON document in its WS message.
 			// Ignore any tail for the completed client turn, but never reuse the
 			// ambiguous upstream connection for another request.

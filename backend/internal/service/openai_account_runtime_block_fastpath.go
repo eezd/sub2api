@@ -160,6 +160,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
+	// Fastpath 和后面的通用错误处理会各自判断临时不可调度。绑在同一次
+	// stateCtx 上，一条上游错误只会计数一次。
+	stateCtx = bindTempUnschedAttempt(stateCtx)
 	if s != nil {
 		stateCtx = s.rateLimitService.observeAccountOps(stateCtx, account, statusCode, headers, responseBody)
 	}
@@ -209,6 +212,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		s.rateLimitService.maybeHandleOpenAITeamLinkedError(stateCtx, account, statusCode, responseBody)
 	}
 	stateCtx = withTempUnschedulableModel(stateCtx, canonicalModel)
+	if len(canonicalModel) > 0 {
+		stateCtx = context.WithValue(stateCtx, upstreamModelNotFoundCanonicalContextKey{}, strings.TrimSpace(canonicalModel[0]))
+	}
 	if s.rateLimitService != nil && len(canonicalModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, canonicalModel[0], statusCode, responseBody) {
 		return true
 	}

@@ -1,6 +1,7 @@
 name: Issue 765 image scheduler authorization
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [production]
     paths:

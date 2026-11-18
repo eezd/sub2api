@@ -1,5 +1,6 @@
 name: Quality rule152 account saves
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'backend/internal/repository/account_repo.go'

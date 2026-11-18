@@ -58,8 +58,12 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.assertIn('workflow_call', callee['on'])
             self.assertEqual(job['needs'], 'prepare')
             self.assertEqual(job['with']['source_sha'], '${{ needs.prepare.outputs.sha }}')
-            for check in callee['jobs'].values():
+            for check_name, check in callee['jobs'].items():
                 checkouts = [s for s in check['steps'] if s.get('uses', '').startswith('actions/checkout@')]
+                if name == 'ci' and check_name == 'test':
+                    self.assertEqual(set(check['needs']), {'changes', 'unit-test', 'integration-test'})
+                    self.assertTrue(any('Require all selected test jobs' == s.get('name') for s in check['steps']))
+                    continue
                 self.assertTrue(checkouts)
                 for checkout in checkouts:
                     self.assertIn(checkout['with']['ref'], (
@@ -81,6 +85,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.assertTrue(validations <= dependencies(name), name)
         self.assertTrue(any('upstream_release.verify_artifacts(' in step.get('run', '')
                             for step in jobs['release']['steps']))
+    def test_reusable_checks_have_distinct_concurrency_groups(self):
+        checks = self.workflows['release.yml']['jobs']
+        groups = [self.workflows[Path(checks[name]['uses']).name]['concurrency']['group']
+                  for name in ('ci', 'security', 'caddy', 'fullapp', 'vip-credit')]
+        self.assertEqual(len(groups), len(set(groups)))
 
 
 class ReleaseMatrixTest(unittest.TestCase):

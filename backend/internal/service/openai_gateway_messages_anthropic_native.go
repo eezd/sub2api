@@ -40,6 +40,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	SetActualOpenAIUpstreamEndpoint(c, "/v1/messages")
 
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if originalModel == "" {
@@ -249,6 +250,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
+		if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), err); handled {
+			return nil, resetErr
+		}
 		return nil, err
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
@@ -279,16 +283,17 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	c.Data(resp.StatusCode, contentType, body)
 
 	result := &OpenAIForwardResult{
-		RequestID:        resp.Header.Get("x-request-id"),
-		UpstreamHeaders:  resp.Header,
-		Usage:            claudeUsageToOpenAIUsage(usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		Stream:           false,
-		ReasoningEffort:  reasoningEffort,
-		Duration:         time.Since(startTime),
+		RequestID:                   resp.Header.Get("x-request-id"),
+		UpstreamHeaders:             resp.Header,
+		Usage:                       claudeUsageToOpenAIUsage(usage),
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		UpstreamEndpoint:            "/v1/messages",
+		Stream:                      false,
+		ReasoningEffort:             reasoningEffort,
+		Duration:                    time.Since(startTime),
 	}
 	applyObservedUpstreamResponseModel(c, result)
 	return result, nil
@@ -344,6 +349,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	var pendingLines, pendingData []string
+	pendingEventName := ""
+	pendingBytes := 0
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -447,6 +455,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
 						fmt.Errorf("stream usage incomplete after disconnect: %w", ev.err)
 				}
+				if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), ev.err); handled {
+					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), resetErr
+				}
 				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
 						fmt.Errorf("stream usage incomplete: %w", ev.err)
@@ -463,39 +474,63 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
-				if anthropicStreamEventIsTerminal("", trimmed) {
-					sawTerminalEvent = true
-				}
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
 				parseSSEUsagePassthrough(data, usage)
-			} else {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
+				pendingData = append(pendingData, data)
+			} else if eventName, ok := extractOpenAISSEEventLine(line); ok {
+				pendingEventName = eventName
+			}
+			// Relay only complete SSE events. A trailing event name or even
+			// valid JSON without its delimiter cannot establish completion or
+			// leave a partial frame in front of a locally generated reset error.
+			pendingLines = append(pendingLines, line)
+			pendingBytes += len(line) + 1
+			if pendingBytes > maxLineSize {
+				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
+					fmt.Errorf("stream event exceeds size limit")
+			}
+			inPartialEvent = line != ""
+			if line != "" {
+				continue
+			}
+			payload := strings.Join(pendingData, "\n")
+			eventType := gjson.Get(payload, "type").String()
+			validTerminal := gjson.Valid(payload) && eventType == "message_stop" && (pendingEventName == "" || pendingEventName == "message_stop")
+			if (pendingEventName == "message_stop" || eventType == "message_stop") && !validTerminal {
+				// Do not let an invalid terminal-shaped event stop the client
+				// before it can receive the subsequent transport failure.
+				pendingLines, pendingData, pendingEventName, pendingBytes = nil, nil, "", 0
+				continue
+			}
+			if gjson.Valid(payload) {
+				if validTerminal {
 					sawTerminalEvent = true
+				}
+				if !sawTerminalEvent && gjson.Get(payload, "error").IsObject() && (eventType == "error" || pendingEventName == "error") {
+					// Preserve a complete upstream rejection before any later
+					// transport failure; emit exactly one Anthropic error terminal.
+					c.Writer.WriteHeaderNow()
+					semanticErr := writeNativeAnthropicSemanticFailure(c, []byte(payload), originalModel)
+					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), semanticErr
 				}
 			}
 
 			if !clientDisconnected {
-				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
+				restored := reverseToolNamesIfPresentString(c, strings.Join(pendingLines, "\n")+"\n")
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if _, err := io.WriteString(w, "\n"); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
+				} else {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
 					lastDataAt = time.Now()
 					resetKeepaliveTimer()
-					inPartialEvent = false
-				} else {
-					inPartialEvent = true
 				}
 			}
+			pendingLines, pendingData, pendingEventName, pendingBytes = nil, nil, "", 0
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -555,18 +590,19 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 		usage = &ClaudeUsage{}
 	}
 	result := &OpenAIForwardResult{
-		RequestID:        resp.Header.Get("x-request-id"),
-		UpstreamHeaders:  resp.Header,
-		Usage:            claudeUsageToOpenAIUsage(usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		Stream:           true,
-		ReasoningEffort:  reasoningEffort,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnect,
+		RequestID:                   resp.Header.Get("x-request-id"),
+		UpstreamHeaders:             resp.Header,
+		Usage:                       claudeUsageToOpenAIUsage(usage),
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		UpstreamEndpoint:            "/v1/messages",
+		Stream:                      true,
+		ReasoningEffort:             reasoningEffort,
+		Duration:                    time.Since(startTime),
+		FirstTokenMs:                firstTokenMs,
+		ClientDisconnect:            clientDisconnect,
 	}
 	applyObservedUpstreamResponseModel(c, result)
 	return result
