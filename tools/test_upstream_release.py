@@ -27,6 +27,7 @@ class GitHubFixture:
         self.jobs = {}
         self.variable = 'false'
         self.published = None
+        self.artifacts = 0
 
     def get(self, path, optional=False):
         if path.endswith('/releases/latest'):
@@ -40,6 +41,8 @@ class GitHubFixture:
         if '/actions/workflows/' in path:
             workflow = path.split('/actions/workflows/')[1].split('/')[0]
             return {'workflow_runs': self.runs.get(workflow, [])}
+        if '/actions/runs/' in path and '/artifacts?' in path:
+            return {'total_count': self.artifacts}
         if '/releases/tags/' in path:
             return self.published
         raise AssertionError(f'未预期的查询：{path}')
@@ -266,6 +269,29 @@ class UpstreamReleaseTests(unittest.TestCase):
         self.assertEqual(len(self.api.runs['release.yml']), 1)
         release.publish(self.local, self.api, argparse.Namespace(sha=updated['sha']))
         self.assertEqual(run(self.origin, 'rev-parse', updated['tag'] + '^{commit}'), updated['sha'])
+
+    def test_startup_failure_without_jobs_or_artifacts_can_be_superseded(self):
+        previous, args = self.failed_release_with_fix()
+        tag_id = run(self.origin, 'rev-parse', previous['tag'])
+        self.api.runs['release.yml'][0]['conclusion'] = 'startup_failure'
+        self.api.jobs['1'] = []
+        updated = release.sync(self.local, self.api, args)
+        self.assertEqual(updated['tag'], 'v2.13.0-custom.2')
+        self.assertEqual(updated['supersedes_tag'], previous['tag'])
+        self.assertEqual(run(self.origin, 'rev-parse', previous['tag']), tag_id)
+        self.assertEqual(len(self.api.runs['release.yml']), 1)
+
+    def test_startup_failure_with_jobs_or_artifacts_cannot_be_superseded(self):
+        previous, args = self.failed_release_with_fix()
+        self.api.runs['release.yml'][0]['conclusion'] = 'startup_failure'
+        with self.assertRaisesRegex(release.ReleaseError, '外部产物'):
+            release.sync(self.local, self.api, args)
+        self.api.jobs['1'] = []
+        self.api.artifacts = 1
+        with self.assertRaisesRegex(release.ReleaseError, '外部产物'):
+            release.sync(self.local, self.api, args)
+        self.assertEqual(release.load(self.local)['tag'], previous['tag'])
+        self.assertEqual(run(self.origin, 'rev-parse', 'production'), previous['sha'])
 
     def test_superseding_requires_finished_failure_and_no_published_artifacts(self):
         previous, args = self.failed_release_with_fix()

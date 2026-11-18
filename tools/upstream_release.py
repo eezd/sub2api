@@ -230,12 +230,17 @@ def supersede_failed_tag(root, api, state, args):
     runs = api.get(f'repos/{FORK}/actions/workflows/release.yml/runs?{query}&per_page=100')['workflow_runs']
     runs = [run for run in runs if run['head_sha'] == state['sha'] and run['head_branch'] == state['tag']]
     if (len(runs) != 1 or runs[0]['status'] != 'completed' or
-            runs[0]['conclusion'] != 'failure' or runs[0].get('run_attempt') != 1):
+            runs[0]['conclusion'] not in ('failure', 'startup_failure') or runs[0].get('run_attempt') != 1):
         raise ReleaseError('仅支持已结束且未重跑的唯一失败 Release；保留当前进度')
     jobs = api.pages(f'repos/{FORK}/actions/runs/{runs[0]["id"]}/jobs', key='jobs')
-    skipped = {job['name'] for job in jobs if job['conclusion'] == 'skipped'}
-    if not {'build-frontend', 'release'} <= skipped:
-        raise ReleaseError('失败发生在构建或发布阶段，需先人工核对已有外部产物')
+    if runs[0]['conclusion'] == 'startup_failure':
+        artifacts = api.get(f'repos/{FORK}/actions/runs/{runs[0]["id"]}/artifacts?per_page=1')
+        if jobs or artifacts['total_count'] != 0:
+            raise ReleaseError('启动失败运行已有任务或产物，需先人工核对已有外部产物')
+    else:
+        skipped = {job['name'] for job in jobs if job['conclusion'] == 'skipped'}
+        if not {'build-frontend', 'release'} <= skipped:
+            raise ReleaseError('失败发生在构建或发布阶段，需先人工核对已有外部产物')
     if api.get(f'repos/{FORK}/releases/tags/{state["tag"]}', optional=True):
         raise ReleaseError('失败版本已有 Release，需先人工核对已有外部产物')
     release_settings(api)

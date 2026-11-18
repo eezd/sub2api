@@ -85,6 +85,18 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.assertTrue(validations <= dependencies(name), name)
         self.assertTrue(any('upstream_release.verify_artifacts(' in step.get('run', '')
                             for step in jobs['release']['steps']))
+    def test_release_grants_permissions_requested_by_reusable_checks(self):
+        workflow = self.workflows['release.yml']
+        levels = {'none': 0, 'read': 1, 'write': 2}
+        for name, job in workflow['jobs'].items():
+            if not job.get('uses', '').startswith('./.github/workflows/'):
+                continue
+            caller = job.get('permissions', workflow['permissions'])
+            callee = self.workflows[Path(job['uses']).name]
+            for scope, level in callee.get('permissions', {}).items():
+                self.assertGreaterEqual(levels[caller.get(scope, 'none')], levels[level],
+                                        f'{name} does not grant {scope}: {level}')
+
     def test_reusable_checks_have_distinct_concurrency_groups(self):
         checks = self.workflows['release.yml']['jobs']
         groups = [self.workflows[Path(checks[name]['uses']).name]['concurrency']['group']
