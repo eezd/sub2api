@@ -5,7 +5,9 @@ description: 同步 ranxi2001/sub2api 上游到 eezd/sub2api，处理合并冲�
 
 # Sub2API 上游同步与发布
 
-在 `/root/Main/Project/sub2api` 工作，先读 `AGENTS.md`、`CONTEXT.md`，以当前用户指令确定执行范围。只要求分析时使用只读检查；创建或修改工具不等于授权实际同步或发布。用户已要求执行完整同步发布时，持续完成已经授权的步骤，不重复确认。
+> **已停用的历史 GitHub 发版流程。** 项目已切换至私有 Gitea，GitHub Actions 已关闭。下文及 `tools/upstream_release.py` 仅作历史记录，不执行其中的同步、发版或验收命令，也不通过临时换远端恢复旧发版。新流程见 [`deploy/GITEA_RELEASE.md`](../../../deploy/GITEA_RELEASE.md)。
+
+在本仓库根目录工作，先读 `AGENTS.md`、`CONTEXT.md`，以当前用户指令确定执行范围。只要求分析时使用只读检查；创建或修改工具不等于授权实际同步或发布。用户已要求执行完整同步发布时，持续完成已经授权的步骤，不重复确认。
 
 确定性操作使用仓库内 `tools/upstream_release.py`，需要 Python 3.11+、Git；发布验收需要 Docker Buildx。GitHub 查询直接使用标准库；私有仓库变量检查需要环境中的 `GH_TOKEN` / `GITHUB_TOKEN` 或现有 `gh` 登录，不输出 token，也不写入文件。缺少凭据时仍可运行 `plan`，但不能将该检查描述为可发布。
 

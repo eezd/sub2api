@@ -170,19 +170,21 @@ class SelectionTests(unittest.TestCase):
 
 class WiringTests(unittest.TestCase):
     def test_workflow_outputs_scopes_and_conditions_are_consistent(self):
+        workflows = REPO / '.github/workflow-archive/legacy-github-actions'
         config = json.loads((REPO / '.github/ci/scopes.json').read_text())
         for filename, scopes in config.items():
-            workflow = yaml.safe_load((REPO / '.github/workflows' / filename).read_text())
+            workflow = yaml.safe_load((workflows / filename).read_text())
             self.assertEqual(set(workflow['jobs']['changes']['outputs']), set(scopes), filename)
             for job in scopes:
                 self.assertEqual(workflow['jobs'][job]['needs'], 'changes')
                 self.assertEqual(workflow['jobs'][job]['if'], f"needs.changes.outputs['{job}'] == 'true'")
-        for p in (REPO / '.github/workflows').glob('*.yml'):
+        for p in workflows.glob('*.yml'):
             self.assertTrue(yaml.safe_load(p.read_text()).get('jobs'), p.name)
 
     def test_feature_workflow_jobs_unchanged_by_trigger_cleanup(self):
         # Broad inputs must not sneak back through shared UI metadata.
-        for p in (REPO / '.github/workflows').glob('*.yml'):
+        workflows = REPO / '.github/workflow-archive/legacy-github-actions'
+        for p in workflows.glob('*.yml'):
             workflow = yaml.safe_load(p.read_text())
             events = workflow.get('on', workflow.get(True, {}))
             paths = (events.get('pull_request') or {}).get('paths', [])

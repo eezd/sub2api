@@ -1,5 +1,7 @@
 # 历史 CI 归档
 
+Gitea 切换时，另将 `dev` 上剩余的 GitHub Actions 定义原样移入 [`legacy-github-actions/`](legacy-github-actions/)。该目录不是工作流入口；旧分支和 TAG 的历史树不受影响。以下为 2026-11-17 的归档记录。
+
 2026-11-17 从 `.github/workflows/` 迁出 32 份工作流。GitHub Actions 不加载本目录；文件原样保留，便于追溯旧 PR 的验收命令、固定基线和截图步骤。测试源码及取证脚本仍在原位置。
 
 归档基线：`e3f238e3f`（production）。归档对象只包含已合并功能的专用分支验收、旧上游版本同步、历史截图和试用构建；当前开放 PR 的专用入口保留；另外归档仅允许在 `Wei-Shaw/sub2api` 执行的上游 CLA 工作流，它在本 fork 不提供检查。主 CI 继续执行后端 unit/integration、前端关键测试、lint、部署及发布辅助脚本检查。

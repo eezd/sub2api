@@ -80,7 +80,7 @@ class GoTestRunnerTests(unittest.TestCase):
     def test_both_suites_provision_native_redis_before_tests(self):
         # authcache integration tests spawn an isolated process; a Redis service
         # container alone cannot satisfy their exec.LookPath("redis-server").
-        workflow = yaml.safe_load((runner.ROOT / '.github/workflows/backend-ci.yml').read_text())
+        workflow = yaml.safe_load((runner.ROOT / '.github/workflow-archive/legacy-github-actions/backend-ci.yml').read_text())
         for job in ('unit-test', 'integration-test'):
             commands = [step.get('run', '') for step in workflow['jobs'][job]['steps']]
             install = next(i for i, command in enumerate(commands) if 'redis-server --version' in command)
@@ -89,7 +89,7 @@ class GoTestRunnerTests(unittest.TestCase):
             self.assertIn('apt-get install -y --no-install-recommends redis-server', commands[install])
 
     def test_gate_rejects_failed_cancelled_or_missing_selected_suites(self):
-        workflow = yaml.safe_load((runner.ROOT / '.github/workflows/backend-ci.yml').read_text())
+        workflow = yaml.safe_load((runner.ROOT / '.github/workflow-archive/legacy-github-actions/backend-ci.yml').read_text())
         gate_job = workflow['jobs']['test']
         self.assertEqual(gate_job['if'], '${{ !cancelled() }}')
         gate = gate_job['steps'][0]['run']

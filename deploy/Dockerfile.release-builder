@@ -1,0 +1,10 @@
+FROM golang:1.27.4-bookworm AS go-toolchain
+FROM node:24-bookworm
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:/usr/local/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends jq python3 && \
+    npm install --global pnpm@9.15.9 && \
+    GOBIN=/usr/local/bin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+RUN mkdir -p /work/source /work/output && chown -R node:node /work
+USER node
+WORKDIR /work

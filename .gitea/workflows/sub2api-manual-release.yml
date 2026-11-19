@@ -1,0 +1,37 @@
+name: Manual release
+run-name: Release ${{ inputs.source_branch }} (${{ inputs.request_id }})
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+permissions:
+  code: read
+concurrency:
+  group: sub2api-manual-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: gitea.ref == 'refs/heads/main'
+    runs-on: sub2api-release-dedicated
+    timeout-minutes: 115
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify isolated worker and publish fixed source
+        env:
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_REF: ${{ gitea.ref }}
+          RELEASE_RUN_ID: ${{ gitea.run_id }}-${{ gitea.run_attempt }}
+          GITEA_RELEASE_TOKEN: ${{ secrets.ALL_GITEA_TOKEN }}
+        run: python3 scripts/manual-release.py

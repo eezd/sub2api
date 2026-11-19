@@ -1,6 +1,7 @@
 # 本地杂项文档、测试数据和外部项目副本
 /docs-local/
 .codex
+/runtime/
 
 # ===================
 # Go 后端
@@ -123,6 +124,14 @@ tests
 CLAUDE.md
 .claude
 scripts
+!/scripts/
+/scripts/*
+!/scripts/build-release.sh
+!/scripts/package-release.sh
+!/scripts/manual-release.py
+!/scripts/gitea_http.py
+!/scripts/release_build.py
+!/scripts/test_manual_release.py
 !backend/scripts/
 !backend/scripts/resolve-version.sh
 .code-review-state
