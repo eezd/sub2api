@@ -93,6 +93,7 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(data['ref'], 'refs/heads/main')
         self.assertEqual(data['inputs']['source_sha'], sha)
         self.assertEqual(data['inputs']['source_branch'], 'feature/example')
+        self.assertIs(data['inputs']['publish_release'], True)
         self.assertIn(data['inputs']['request_id'], stdout.getvalue())
         return calls, stderr.getvalue()
 
@@ -106,6 +107,57 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertTrue(calls[-1][0].endswith('/actions/runs/123'))
         self.assertIn('发布未成功：failure', error)
+
+
+class VerifyBuildTests(unittest.TestCase):
+    def setUp(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(patch.object(release, 'ROOT', directory))
+        self.git('init', '-q', '-b', 'main')
+        self.git('config', 'user.name', 'Fixture')
+        self.git('config', 'user.email', 'fixture@example.test')
+        self.git('commit', '-q', '--allow-empty', '-m', 'initial')
+        self.commit = self.git('rev-parse', 'HEAD')
+        self.env = self.enterContext(patch.dict(os.environ, {
+            'RELEASE_REF': 'refs/heads/main', 'SOURCE_BRANCH': 'feature/demo',
+            'SOURCE_SHA': self.commit, 'RELEASE_RUN_ID': '123-1',
+        }))
+        self.env.pop('GITEA_RELEASE_TOKEN', None)
+        self.api = self.enterContext(patch.object(release, 'Gitea'))
+        self.publish = self.enterContext(patch.object(release, 'publish'))
+        self.checkpoint = self.enterContext(patch.object(release, 'write_json'))
+        self.engine = self.enterContext(patch.object(release, 'worker_test_engine', return_value='192.168.0.1'))
+        self.build = self.enterContext(patch.object(release, 'build'))
+
+    def git(self, *args):
+        return release.git(*args)
+
+    def test_builds_original_sha_without_api_or_checkpoint(self):
+        self.git('commit', '-q', '--allow-empty', '-m', 'advance')
+        self.git('update-ref', 'refs/remotes/origin/feature/demo', 'HEAD')
+        with redirect_stdout(io.StringIO()) as stdout:
+            release.verify_build()
+        self.build.assert_called_once()
+        output, row, run_id, engine = self.build.call_args.args
+        self.assertEqual(row['source_sha'], self.commit)
+        self.assertEqual(row['source_branch'], 'feature/demo')
+        self.assertEqual(run_id, '123-1')
+        self.assertEqual(engine, '192.168.0.1')
+        self.assertFalse(output.exists())
+        self.assertIn('nothing published', stdout.getvalue())
+        self.api.assert_not_called()
+        self.publish.assert_not_called()
+        self.checkpoint.assert_not_called()
+
+    def test_unreachable_sha_stops_before_worker_access(self):
+        self.git('update-ref', 'refs/remotes/origin/feature/demo', self.commit)
+        self.git('commit', '-q', '--allow-empty', '-m', 'not on source branch')
+        self.env['SOURCE_SHA'] = self.git('rev-parse', 'HEAD')
+        with self.assertRaisesRegex(ValueError, 'no longer reachable'):
+            release.verify_build()
+        self.engine.assert_not_called()
+        self.build.assert_not_called()
+        self.api.assert_not_called()
 
 
 class TransportTests(unittest.TestCase):

@@ -122,7 +122,8 @@ def main():
     details = request(base + '/actions/workflows/' + quote(WORKFLOW) +
                       '/dispatches?return_run_details=true', token,
                       {'ref': 'refs/heads/main', 'inputs': {
-                          'source_branch': branch, 'source_sha': sha, 'request_id': request_id}},
+                          'source_branch': branch, 'source_sha': sha, 'request_id': request_id,
+                          'publish_release': True}},
                       phase='调度发布工作流')
     if (not isinstance(details, dict) or type(details.get('workflow_run_id')) is not int or
             details['workflow_run_id'] <= 0):

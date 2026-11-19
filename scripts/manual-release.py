@@ -286,11 +286,15 @@ def publish(api, authfile, row, directory, path):
     write_json(path, row)
 
 
-def execute():
+def release_inputs():
     branch, commit, run_id = (os.environ[key] for key in ('SOURCE_BRANCH', 'SOURCE_SHA', 'RELEASE_RUN_ID'))
     require(HEX.fullmatch(commit) and re.fullmatch(r'[0-9]+-[0-9]+', run_id), 'Invalid source SHA or run ID')
     require(not branch.startswith('-') and git('check-ref-format', '--branch', branch) == branch, 'Invalid source branch')
     require(os.environ.get('RELEASE_REF') == 'refs/heads/main', 'Release must run from trusted main')
+    return branch, commit, run_id
+
+
+def worker_test_engine():
     approval = STATE / 'dedicated-worker-approved'
     require(STATE.is_dir() and os.path.ismount(STATE) and approval.is_file(),
             'Dedicated release worker and its approved persistent mount are required')
@@ -298,6 +302,35 @@ def execute():
     require(any(test_engine in ipaddress.IPv4Network(block) for block in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')),
             'A dedicated integration Docker host on a private network is required')
     require(run('docker', 'info', '--format', '{{.Architecture}}') in ('x86_64', 'amd64'), 'Require a native Linux amd64 release worker')
+    return str(test_engine)
+
+
+def require_ancestor(commit, ref):
+    require(subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', commit, ref]).returncode == 0,
+            'Fixed commit is no longer reachable from the source branch')
+
+
+def version_for(commit):
+    date = dt.datetime.fromisoformat(git('show', '-s', '--format=%cI', commit))
+    return date.astimezone(dt.timezone.utc).strftime('%Y%m%d') + '-' + commit[:8]
+
+
+def verify_build():
+    branch, commit, run_id = release_inputs()
+    # Full-history checkout supplies the branch snapshot without release credentials.
+    require_ancestor(commit, git('show-ref', '--verify', '--hash', 'refs/remotes/origin/' + branch))
+    test_engine = worker_test_engine()
+    version = version_for(commit)
+    row = {'version': version, 'source_sha': commit, 'source_branch': branch,
+           'built_at': utc_now(), 'previous_tag': None}
+    with tempfile.TemporaryDirectory(prefix='sub2api-verify-') as scratch:
+        build(Path(scratch), row, run_id, test_engine)
+    print(f'Build verified: {version} ({commit}); nothing published', flush=True)
+
+
+def execute():
+    branch, commit, run_id = release_inputs()
+    test_engine = worker_test_engine()
     os.umask(0o077)
     api = Gitea(os.environ.get('GITEA_RELEASE_TOKEN'))
     identity = api.request('/user')
@@ -308,10 +341,8 @@ def execute():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         branch_ref = 'refs/heads/' + branch
         api.git('fetch', '--no-tags', WEB + '.git', branch_ref)
-        require(subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', commit, 'FETCH_HEAD']).returncode == 0,
-                'Fixed commit is no longer reachable from the source branch')
-        date = dt.datetime.fromisoformat(git('show', '-s', '--format=%cI', commit))
-        version = date.astimezone(dt.timezone.utc).strftime('%Y%m%d') + '-' + commit[:8]
+        require_ancestor(commit, 'FETCH_HEAD')
+        version = version_for(commit)
         authfile = str(Path(authdir) / 'auth.json')
         subprocess.run(['skopeo', 'login', '--authfile', authfile, '--username', identity['login'], '--password-stdin',
                         'git.134333.xyz'], input=api.token, text=True, check=True)
@@ -351,7 +382,7 @@ def execute():
             with tempfile.TemporaryDirectory(prefix='.candidate-', dir=STATE) as scratch:
                 staging = Path(scratch) / version
                 staging.mkdir()
-                build(staging, row, run_id, str(test_engine))
+                build(staging, row, run_id, test_engine)
                 proof = {name: sha(staging / name) for name in [*names(version), 'build.json', 'SHA256SUMS', 'image.oci']}
                 for name in proof:
                     with (staging / name).open('rb') as file:
@@ -369,6 +400,11 @@ def execute():
 
 if __name__ == '__main__':
     try:
-        execute()
+        if sys.argv[1:] == ['--verify-only']:
+            verify_build()
+        elif not sys.argv[1:]:
+            execute()
+        else:
+            sys.exit('Usage: manual-release.py [--verify-only]')
     except (RuntimeError, ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
-        sys.exit(f'Release stopped: {error}')
+        sys.exit(f'Workflow stopped: {error}')

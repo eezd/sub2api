@@ -4,20 +4,20 @@
 
 ## Gitea 发布
 
-[手动发布工作流](../.gitea/workflows/sub2api-manual-release.yml)随 `dev` 交付，尚未部署到 `main`；Gitea Actions 保持关闭。`dev` 的旧 GitHub 工作流已移入[归档目录](../.github/workflow-archive/legacy-github-actions/)，不再从 `.github/workflows` 加载。新工作流使用独立文件名，默认 job token 仅能读代码。
+[手动发布工作流](../.gitea/workflows/sub2api-manual-release.yml)已随基础版本到达 `main` 和 `dev`；Gitea Actions 保持关闭。两条分支的旧 GitHub 工作流已移入[归档目录](../.github/workflow-archive/legacy-github-actions/)，不再从 `.github/workflows` 加载。新工作流使用独立文件名，默认 job token 仅能读代码。
 
 启用前，按以下顺序验收：
 
 1. 审核 `dev` 的控制代码后快进到受保护的 `main`。保证能够修改或触发工作流的权限仅授予可信维护者；工作流中的 `main` 条件不能替代仓库权限。
-2. 验证所有可触发引用（包括历史 TAG）不会执行 `.github/workflows`。Gitea v28.2.0 默认在无 `.gitea/workflows` 的引用上回退查找该目录；原始导入时三条分支各有 114 个旧工作流 ID，19 个历史 TAG 另外带有 20 个。`dev` 的归档不影响尚未推进的 `main`、`production` 或历史 TAG。只改 `main` 或只禁用默认分支列出的 ID 都不足以覆盖。若由实例管理员采用 `[actions] WORKFLOW_DIRS = .gitea/workflows` 阻断回退，须先评估并单独批准对其他仓库的影响；本项目不变更共享 Gitea 配置。未验证隔离时保持仓库 Actions 关闭。
-3. 核对专用 runner、检查点和发布凭据，再启用仓库 Actions。先只读确认远端只识别预期的手动入口，确认普通 push、PR、tag 和 release 事件不会创建自动运行。真实发布另行授权。
+2. 验证所有可触发引用（包括历史 TAG）不会执行 `.github/workflows`。Gitea v28.2.0 默认在无 `.gitea/workflows` 的引用上回退查找该目录；原始导入时三条分支各有 114 个旧工作流 ID，19 个历史 TAG 另外带有 20 个。`main` 和 `dev` 的归档不影响 `production` 或历史 TAG。公开的工作流禁用接口只查找默认分支上的定义，不能直接禁用这些旧引用中的全部定义。若由实例管理员采用 `[actions] WORKFLOW_DIRS = .gitea/workflows` 阻断回退，须先评估并单独批准对其他仓库的影响；本项目不变更共享 Gitea 配置。未验证隔离时保持仓库 Actions 关闭。
+3. 核对非生产 runner 和隔离测试引擎；仅在旧工作流隔离确认后启用仓库 Actions。先在 Gitea 的 `main` 手动运行工作流，填写来源分支、完整 SHA 和请求 ID，保持 `publish_release` 不勾选。试跑执行相同的构建和测试，不使用发布步骤的 `GITEA_RELEASE_TOKEN`，不写 Gitea TAG、Release、Registry 或正式检查点，临时产物随任务清理。首次正式发布另行授权。
 
-发布必须使用独立 Linux amd64 worker（标签 `sub2api-release-dedicated`），提供 checkout action 所需的 Node 20 运行时，并支持 Python 3、curl、Git、Docker/Buildx、Skopeo 和 arm64 构建执行。不能复用生产 Docker 或当前共享 Gitea runner。管理员应检查：
+发布必须使用隔离的非生产 Linux amd64 worker（标签 `sub2api-release-dedicated`），提供 checkout action 所需的 Node 20 运行时，并支持 Python 3、curl、Git、Docker/Buildx、Skopeo 和 arm64 构建执行。可以使用满足条件的非生产共享 runner，不要求新增物理机；不能使用当前连接生产 Docker 的共享 runner。管理员应检查：
 
 - `/docker/gitea/mirrors/sub2api` 是可恢复的专用持久挂载。挂载内 `dedicated-worker-approved` 文件记录集成测试专用临时 Docker 主机的私网 IPv4。该主机不保存发布凭据、检查点或其他任务数据；只允许该发布环境访问 Docker 接口和测试容器动态端口，由管理员按任务初始化和回收。
 - Actions secret `ALL_GITEA_TOKEN` 能写入该私有仓库的 TAG、Release 和镜像；实际仓库、附件、镜像权限和上传限制已核实。
 
-条件未满足时不要调度。通过受限凭据机制提供 `GITEA_TOKEN` 后，运行 `./release.sh <远端分支>`。脚本从 Gitea 固定提交，只调度一次 `main` 的手动工作流，不部署或同步 GitHub。请求结果不明时按请求 ID 查询，不重复提交。
+条件未满足时不要调度。正式发布使用 `./release.sh <远端分支>`，由受限凭据机制提供 `GITEA_TOKEN`。客户端显式请求发布，以 Gitea 上的分支固定提交，只调度一次 `main` 的手动工作流，不部署或同步 GitHub。请求结果不明时按请求 ID 查询，不重复提交。
 
 产物包括 Linux、macOS、Windows 的 amd64/arm64 六个安装包、`SHA256SUMS`、`build.json`，以及仅带本次版本标签的双架构 Gitea 镜像。版本为 `YYYYMMDD-<8 位 SHA>`，日期取提交者时间的 UTC 日期。只有附件、镜像和完成标记 `release-complete.json` 都核对通过才算完成。
 
