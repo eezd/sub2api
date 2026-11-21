@@ -9,10 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import gitea_http
-import release_build
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -213,7 +212,7 @@ class VerifyBuildTests(unittest.TestCase):
         self.env.pop('FORGEJO_RELEASE_TOKEN', None)
         self.api = self.enterContext(patch.object(release, 'Forgejo'))
         self.publish = self.enterContext(patch.object(release, 'publish'))
-        self.engine = self.enterContext(patch.object(release, 'worker_test_engine', return_value='192.168.0.1'))
+        self.engine = self.enterContext(patch.object(release, 'worker_build_engine'))
         self.build = self.enterContext(patch.object(release, 'build'))
 
     def git(self, *args):
@@ -225,11 +224,11 @@ class VerifyBuildTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as stdout:
             release.verify_build()
         self.build.assert_called_once()
-        output, row, run_id, engine = self.build.call_args.args
+        output, row, run_id = self.build.call_args.args
         self.assertEqual(row['source_sha'], self.commit)
         self.assertEqual(row['source_branch'], 'feature/demo')
         self.assertEqual(run_id, '123-1')
-        self.assertEqual(engine, '192.168.0.1')
+        self.engine.assert_called_once_with()
         self.assertFalse(output.exists())
         self.assertIn('nothing published', stdout.getvalue())
         self.api.assert_not_called()
@@ -247,58 +246,36 @@ class VerifyBuildTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
-    def test_requires_independent_engines_and_never_uses_the_default_context(self):
-        with (patch.dict(os.environ, {'DOCKER_CONTEXT': 'production'}, clear=True),
-              patch.object(release, 'run', return_value='linux/x86_64') as docker):
-            with self.assertRaisesRegex(ValueError, 'SUB2API_BUILD_DOCKER_IP'):
-                release.worker_test_engine()
-            os.environ.update(SUB2API_BUILD_DOCKER_IP='192.168.0.2', SUB2API_TEST_DOCKER_IP='192.168.0.2')
-            with self.assertRaisesRegex(ValueError, 'must be independent'):
-                release.worker_test_engine()
-            docker.assert_not_called()
-            os.environ['SUB2API_TEST_DOCKER_IP'] = '192.168.0.3'
-            self.assertEqual(release.worker_test_engine(), '192.168.0.3')
-            self.assertEqual(os.environ['DOCKER_HOST'], 'tcp://192.168.0.2:2375')
-            self.assertNotIn('DOCKER_CONTEXT', os.environ)
-            docker.assert_called_once_with('docker', 'info', '--format', '{{.OSType}}/{{.Architecture}}')
+    TLS_ENV = {'DOCKER_HOST': 'tcp://docker:2376', 'DOCKER_TLS_VERIFY': '1',
+               'DOCKER_CERT_PATH': '/fixture/client'}
 
+    def test_preserves_runner_tls_environment_and_requires_native_linux_amd64(self):
+        for platform in ('linux/x86_64', 'linux/amd64', 'linux/aarch64', 'windows/amd64'):
+            with (self.subTest(platform=platform), patch.dict(os.environ, self.TLS_ENV, clear=True),
+                  patch.object(release, 'run', return_value=platform) as docker):
+                if platform in ('linux/x86_64', 'linux/amd64'):
+                    release.worker_build_engine()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'native Linux amd64'):
+                        release.worker_build_engine()
+                self.assertEqual(dict(os.environ), self.TLS_ENV)
+                docker.assert_called_once_with('docker', 'info', '--format', '{{.OSType}}/{{.Architecture}}')
 
-class SourceTransferTests(unittest.TestCase):
-    def test_source_pipeline_and_copy_failure_both_release_temporary_resources(self):
-        for fail_copy in (False, True):
-            with self.subTest(fail_copy=fail_copy), tempfile.TemporaryDirectory() as scratch:
-                root = Path(scratch)
-                (root / 'deploy').mkdir()
-                (root / 'deploy/Dockerfile.release-builder').write_text('FROM fixture\n')
-                archive_output = io.BytesIO(b'fixed source archive')
-                archive = unittest.mock.MagicMock()
-                archive.stdout = archive_output
-                archive.__enter__.return_value = archive
-                archive.wait.return_value = 0
-                calls = []
-
-                def command(args, **kwargs):
-                    calls.append(args)
-                    if args[:3] == ['docker', 'cp', '-']:
-                        self.assertIs(kwargs['stdin'], archive_output)
-                        if fail_copy:
-                            raise subprocess.CalledProcessError(1, args)
-                    return subprocess.CompletedProcess(args, int(args[:3] == ['docker', 'start', '-a']))
-
-                with (patch.object(release_build, 'ROOT', root), patch.object(release_build, 'run', return_value='fixture'),
-                      patch.object(release_build, 'wait_for'), patch.object(release_build, 'cleanup') as cleanup,
-                      patch.object(release_build.subprocess, 'Popen', return_value=archive) as pipe,
-                      patch.object(release_build.subprocess, 'run', side_effect=command),
-                      self.assertRaises(subprocess.CalledProcessError if fail_copy else RuntimeError)):
-                    release_build.build(root, dict(version='20250301-aaaaaaaa', source_sha='a' * 40,
-                                                  built_at='2025-03-01T00:00:00Z'), '123-1', '192.168.0.3')
-                pipe.assert_called_once_with(['git', '-C', str(root), 'archive', 'a' * 40], stdout=subprocess.PIPE)
-                self.assertTrue(archive_output.closed)
-                self.assertEqual(cleanup.call_count, 5)  # candidate, fixtures, network, builder image
-                self.assertTrue(any(call.args == ('docker', 'rm', '-f', '-v', 'sub2api-release-123-1-build')
-                                    for call in cleanup.call_args_list))
-                self.assertFalse(any(path.name.startswith('sub2api-release-') for path in root.iterdir()))
-                self.assertEqual(any(args[:3] == ['docker', 'start', '-a'] for args in calls), not fail_copy)
+    def test_invalid_connection_never_falls_back_to_socket_or_another_context(self):
+        invalid = [{}, {'DOCKER_HOST': ''}, {'DOCKER_HOST': 'unix:///var/run/docker.sock'},
+                   {'DOCKER_HOST': 'tcp://docker:2375'}, {'DOCKER_HOST': 'ssh://docker:2376'},
+                   {'DOCKER_HOST': 'tcp://secret@docker:2376'}, {'DOCKER_HOST': 'tcp://docker:2376/path'},
+                   {'DOCKER_TLS_VERIFY': ''}, {'DOCKER_TLS_VERIFY': '0'}, {'DOCKER_CERT_PATH': ''},
+                   {'DOCKER_CONTEXT': 'production'}]
+        for changes in invalid:
+            environment = dict(self.TLS_ENV, **changes) if changes else {}
+            with (self.subTest(changes=changes), patch.dict(os.environ, environment, clear=True),
+                  patch.object(release, 'run') as docker, self.assertRaises(ValueError)):
+                try:
+                    release.worker_build_engine()
+                finally:
+                    docker.assert_not_called()
+                    self.assertEqual(dict(os.environ), environment)
 
 
 class SyncRegistryTests(unittest.TestCase):
@@ -444,7 +421,7 @@ class PublisherTests(unittest.TestCase):
         self.enterContext(patch.object(release, 'inspect_registry', return_value=None))
         self.enterContext(patch.object(release, 'native_tags', side_effect=lambda _: self.api.tags.copy()))
         self.enterContext(patch.object(release, 'tag', side_effect=self.tag))
-        self.engine = self.enterContext(patch.object(release, 'worker_test_engine', return_value='192.168.0.3'))
+        self.engine = self.enterContext(patch.object(release, 'worker_build_engine'))
         self.builder = self.enterContext(patch.object(release, 'build', side_effect=self.build))
         self.registry = self.enterContext(patch.object(release, 'registry'))
         self.workspaces = []
@@ -621,6 +598,42 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.builder.call_count, 1)
 
 
+class ReleaseVisibilityTests(unittest.TestCase):
+    def execute(self, repository):
+        self.api = MagicMock()
+        self.api.token = 'synthetic-release-token'
+        self.api.request.return_value = {'login': 'fixture', 'id': 7}
+        self.api.repo.return_value = repository
+        with (patch.object(release, 'release_inputs', return_value=('dev', 'a' * 40, '123-1')),
+              patch.object(release.os, 'umask'), patch.object(release, 'Forgejo', return_value=self.api),
+              patch.object(release, 'require_ancestor') as ancestry,
+              patch.object(release.subprocess, 'run') as process,
+              patch.object(release, 'continue_release') as publish,
+              patch.object(release, 'version_for', return_value='20250301-aaaaaaaa'), redirect_stdout(io.StringIO())):
+            self.process, self.publish, self.ancestry = process, publish, ancestry
+            release.execute()
+
+    def test_public_primary_with_write_permission_reaches_release(self):
+        self.execute({'full_name': release.REPO, 'private': False, 'permissions': {'push': True}})
+        self.assertEqual(self.api.actor_id, 7)
+        self.publish.assert_called_once()
+        self.api.git.assert_called_once_with('fetch', '--no-tags', release.WEB + '.git', 'refs/heads/dev')
+        self.ancestry.assert_called_once_with('a' * 40, 'FETCH_HEAD')
+        self.process.assert_called_once()
+
+    def test_wrong_visibility_identity_or_permission_stops_before_git_login_or_release(self):
+        for changes in ({'private': True}, {'private': None}, {'private': 0},
+                        {'full_name': 'other/sub2api'}, {'permissions': {'push': False}}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'public Forgejo primary'):
+                try:
+                    self.execute({'full_name': release.REPO, 'private': False, 'permissions': {'push': True}} | changes)
+                finally:
+                    self.api.git.assert_not_called()
+                    self.process.assert_not_called()
+                    self.publish.assert_not_called()
+                    self.ancestry.assert_not_called()
+
+
 class WorkflowContractTests(unittest.TestCase):
     def test_only_forgejo_dispatch_three_strings_and_legal_secret(self):
         import yaml
@@ -635,6 +648,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(workflow['concurrency']['cancel-in-progress'], 'false')
         job = workflow['jobs']['release']
         self.assertEqual(job['runs-on'], 'docker')
+        self.assertFalse(any(key.startswith('SUB2API_') or key.startswith('DOCKER_') for key in job['env']))
         self.assertEqual(job['steps'][-1]['env'], {'FORGEJO_RELEASE_TOKEN': '${{ secrets.RELEASE_TOKEN }}'})
         self.assertEqual(job['steps'][0]['with']['ref'], '${{ forgejo.sha }}')
         self.assertEqual(job['steps'][0]['with']['persist-credentials'], 'false')

@@ -31,8 +31,6 @@ jobs:
       TRUSTED_SHA: ${{ forgejo.sha }}
       RELEASE_REF: ${{ forgejo.ref }}
       RELEASE_RUN_ID: ${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
-      SUB2API_BUILD_DOCKER_IP: ${{ vars.SUB2API_BUILD_DOCKER_IP }}
-      SUB2API_TEST_DOCKER_IP: ${{ vars.SUB2API_TEST_DOCKER_IP }}
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:

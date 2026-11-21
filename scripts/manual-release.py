@@ -5,7 +5,6 @@ import base64
 from collections import deque
 import datetime as dt
 import hashlib
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -292,26 +291,17 @@ def release_inputs():
     return branch, commit, run_id
 
 
-def worker_test_engine():
-    def private_engine(variable):
-        name = os.environ.get(variable, '')
-        try:
-            address = ipaddress.IPv4Address(name)
-        except ValueError:
-            raise ValueError(f'{variable} must name an approved non-production Docker IPv4 address') from None
-        require(any(address in ipaddress.IPv4Network(block) for block in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')),
-                f'{variable} must be an RFC1918 address')
-        return address
-
-    build_engine = private_engine('SUB2API_BUILD_DOCKER_IP')
-    test_engine = private_engine('SUB2API_TEST_DOCKER_IP')
-    require(build_engine != test_engine, 'Build and integration Docker engines must be independent')
-    # Never fall back to the shared runner's Docker socket or context.
-    os.environ.pop('DOCKER_CONTEXT', None)
-    os.environ['DOCKER_HOST'] = f'tcp://{build_engine}:2375'
+def worker_build_engine():
+    host = urllib.parse.urlsplit(os.environ.get('DOCKER_HOST', ''))
+    require(host.scheme == 'tcp' and host.hostname and host.port == 2376 and
+            not host.username and not host.password and not host.path and not host.query and not host.fragment,
+            'Require an explicit remote TLS Docker connection on port 2376')
+    require(os.environ.get('DOCKER_TLS_VERIFY') == '1' and os.environ.get('DOCKER_CERT_PATH'),
+            'Require DOCKER_TLS_VERIFY=1 and DOCKER_CERT_PATH from the Runner')
+    require(not os.environ.get('DOCKER_CONTEXT'), 'DOCKER_CONTEXT must not override the Runner TLS connection')
+    # Preserve the Runner connection and its certificates; never fall back to a local socket.
     require(run('docker', 'info', '--format', '{{.OSType}}/{{.Architecture}}') in ('linux/x86_64', 'linux/amd64'),
             'Require a native Linux amd64 build engine')
-    return str(test_engine)
 
 
 def require_ancestor(commit, ref):
@@ -328,12 +318,12 @@ def verify_build():
     branch, commit, run_id = release_inputs()
     # Full-history checkout supplies the branch snapshot without release credentials.
     require_ancestor(commit, git('show-ref', '--verify', '--hash', 'refs/remotes/origin/' + branch))
-    test_engine = worker_test_engine()
+    worker_build_engine()
     version = version_for(commit)
     row = {'version': version, 'source_sha': commit, 'source_branch': branch,
            'built_at': utc_now(), 'previous_tag': None}
     with tempfile.TemporaryDirectory(prefix='sub2api-verify-') as scratch:
-        build(Path(scratch), row, run_id, test_engine)
+        build(Path(scratch), row, run_id)
     print(f'Build verified: {version} ({commit}); nothing published', flush=True)
 
 
@@ -502,7 +492,8 @@ def continue_release(api, authfile, branch, commit, run_id):
                control_sha=os.environ['TRUSTED_SHA'], actor_id=api.actor_id)
     with tempfile.TemporaryDirectory(prefix='sub2api-release-') as scratch:
         directory = Path(scratch)
-        build(directory, row, run_id, worker_test_engine())
+        worker_build_engine()
+        build(directory, row, run_id)
         proof = {name: sha(directory / name) for name in originals(version)}
         verify_artifacts(directory, row, proof)
         publish(api, authfile, row, directory, proof)
@@ -514,8 +505,8 @@ def execute():
     api = Forgejo(os.environ.get('FORGEJO_RELEASE_TOKEN'))
     identity = api.request('/user')
     repo = api.repo()
-    require(identity.get('login') and repo.get('full_name') == REPO and repo.get('private') is True and
-            repo.get('permissions', {}).get('push') is True, 'Release requires write access to the private Forgejo primary')
+    require(identity.get('login') and repo.get('full_name') == REPO and repo.get('private') is False and
+            repo.get('permissions', {}).get('push') is True, 'Release requires write access to the public Forgejo primary')
     api.actor_id = identity['id']
     with tempfile.TemporaryDirectory() as authdir:
         api.git('fetch', '--no-tags', WEB + '.git', 'refs/heads/' + branch)

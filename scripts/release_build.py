@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLATFORMS = tuple(f'{system}/{arch}' for system in ('linux', 'darwin', 'windows') for arch in ('amd64', 'arm64'))
 IMAGE = 'git.134333.xyz/eezd/sub2api'
 LIMIT = 90_000_000
+TEST_DOCKER_IMAGE = 'docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c'
 
 
 def run(*args, **kwargs):
@@ -84,7 +85,7 @@ def wait_for(*command):
     raise RuntimeError(f'Isolated dependency did not become ready: {command[-1]}')
 
 
-def build(output, record, run_id, test_engine):
+def build(output, record, run_id):
     version, commit = record['version'], record['source_sha']
     prefix = f'sub2api-release-{run_id}'
     with ExitStack() as stack:
@@ -93,15 +94,15 @@ def build(output, record, run_id, test_engine):
         builder_context.mkdir()
         shutil.copyfile(ROOT / 'deploy/Dockerfile.release-builder', builder_context / 'Dockerfile')
         builder_image = prefix + '-candidate'
-        subprocess.run(['docker', 'build', '-t', builder_image, str(builder_context)], check=True)
         stack.callback(cleanup, 'docker', 'image', 'rm', builder_image)
-        run('docker', 'network', 'create', prefix)
+        subprocess.run(['docker', 'build', '-t', builder_image, str(builder_context)], check=True)
         stack.callback(cleanup, 'docker', 'network', 'rm', prefix)
+        run('docker', 'network', 'create', prefix)
 
         def sidecar(name, image, *flags):
             container = prefix + '-' + name
-            run('docker', 'run', '-d', '--name', container, '--network', prefix, '--network-alias', name, *flags, image)
             stack.callback(cleanup, 'docker', 'rm', '-f', '-v', container)
+            run('docker', 'run', '-d', '--name', container, '--network', prefix, '--network-alias', name, *flags, image)
             return container
 
         postgres = sidecar('postgres', 'postgres:18-alpine', '-e', 'POSTGRES_USER=sub2api',
@@ -112,13 +113,29 @@ def build(output, record, run_id, test_engine):
         run('docker', 'exec', postgres, 'createdb', '-U', 'sub2api', 'sub2api_smoke')
         run('docker', 'exec', postgres, 'createdb', '-U', 'sub2api', 'sub2api_audit')
 
+        # This daemon and its anonymous data/certificate volumes belong only to this task.
+        # The alias resolves here, not to the Runner's parent daemon on its separate network.
+        test_docker = sidecar('docker', TEST_DOCKER_IMAGE, '--privileged',
+                              '-e', 'DOCKER_TLS_CERTDIR=/certs', '-v', '/certs', '-v', '/var/lib/docker')
+        wait_for('docker', 'exec', test_docker, 'docker', '--host', 'unix:///var/run/docker.sock', 'info')
+        certificates = scratch / 'test-docker-certs'
+        certificates.mkdir(mode=0o700)
+        for name in ('ca.pem', 'cert.pem', 'key.pem'):
+            target = certificates / name
+            run('docker', 'cp', f'{test_docker}:/certs/client/{name}', str(target))
+            # Only this disposable copy is made readable for the non-root candidate.
+            target.chmod(0o444)
+        certificates.chmod(0o755)
+
         container = prefix + '-build'
+        stack.callback(cleanup, 'docker', 'rm', '-f', '-v', container)
         run('docker', 'create', '--name', container, '--network', prefix, '--cap-drop=ALL',
             '--security-opt=no-new-privileges', '-e', f'VERSION={version}', '-e', f'SOURCE_SHA={commit}',
-            '-e', f'BUILT_AT={record["built_at"]}', '-e', f'DOCKER_HOST=tcp://{test_engine}:2375',
-            '-e', f'TESTCONTAINERS_HOST_OVERRIDE={test_engine}',
+            '-e', f'BUILT_AT={record["built_at"]}', '-e', 'DOCKER_HOST=tcp://docker:2376',
+            '-e', 'DOCKER_TLS_VERIFY=1', '-e', 'DOCKER_CERT_PATH=/work/test-docker-certs',
+            '-e', 'TESTCONTAINERS_HOST_OVERRIDE=docker',
             builder_image, '/bin/bash', '/work/build.sh')
-        stack.callback(cleanup, 'docker', 'rm', '-f', '-v', container)
+        run('docker', 'cp', str(certificates), container + ':/work/test-docker-certs')
         run('docker', 'cp', str(ROOT / 'scripts/build-release.sh'), container + ':/work/build.sh')
         run('docker', 'cp', str(ROOT / 'scripts/package-release.sh'), container + ':/work/package.sh')
         # Extract the candidate only inside its container; it sees no .git, runner filesystem or credentials.
@@ -168,8 +185,11 @@ def build(output, record, run_id, test_engine):
                 if not binary.isfile() or hashlib.file_digest(package.extractfile(binary), 'sha256').hexdigest() != sha(context / name):
                     raise ValueError('Image binary differs from the verified package')
         builder = prefix + '-oci'
-        run('docker', 'buildx', 'create', '--name', builder, '--driver', 'docker-container')
+        docker_context = prefix + '-context'
+        stack.callback(cleanup, 'docker', 'context', 'rm', docker_context)
+        run('docker', 'context', 'create', docker_context)
         stack.callback(cleanup, 'docker', 'buildx', 'rm', builder)
+        run('docker', 'buildx', 'create', '--name', builder, '--driver', 'docker-container', docker_context)
         subprocess.run(['docker', 'buildx', 'build', '--builder', builder, '--platform', 'linux/amd64,linux/arm64',
                         '--provenance=false', '--sbom=false', '--file', str(dockerfile), '--tag', f'{IMAGE}:{version}',
                         '--output', f'type=oci,dest={output / "image.oci"}', str(context)], check=True)

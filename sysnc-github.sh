@@ -55,6 +55,21 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def load_token(service, variable):
+    token = os.environ.get(variable)
+    if token:
+        return token
+    path = Path.home() / '.config' / service.lower() / 'token'
+    try:
+        token = path.read_text(encoding='utf-8').strip()
+    except FileNotFoundError:
+        token = ''
+    except (OSError, UnicodeError):
+        raise RuntimeError(f'读取 {service} 凭据文件失败：{path}；请检查文件、编码及读取权限，或设置 {variable}') from None
+    require(token, f'缺少 {variable}；请设置该环境变量或将非空 Token 写入 {path}')
+    return token
+
+
 def encode(value):
     return urllib.parse.quote(value, safe='')
 
@@ -89,7 +104,7 @@ class API:
         for _ in range(4):
             if self.host == authority(FORGEJO_API):
                 auth = headers.get('Authorization')
-                request_headers = {key: value for key, value in headers.items() if key not in ('Authorization', 'User-Agent')}
+                request_headers = {key: value for key, value in headers.items() if key != 'Authorization'}
                 with ExitStack() as response_context:
                     try:
                         code, fields, body = response_context.enter_context(forgejo_request(
@@ -503,8 +518,8 @@ def main(project):
                     'Git URL 必须使用配置好的 SSH 或 HTTPS')
             if url.startswith('ssh://'):
                 require(urllib.parse.urlsplit(url).password is None, 'Git URL 不得携带密码')
-    forgejo_token, github_token = os.environ.get('FORGEJO_TOKEN'), os.environ.get('GITHUB_TOKEN')
-    require(forgejo_token and github_token, '请显式提供 FORGEJO_TOKEN 和 GITHUB_TOKEN')
+    forgejo_token = load_token('Forgejo', 'FORGEJO_TOKEN')
+    github_token = load_token('GitHub', 'GITHUB_TOKEN')
     source = API(f'{FORGEJO_API.rstrip("/")}/repos/{FORGEJO_OWNER}/{FORGEJO_REPO}',
                  'token ' + forgejo_token, FORGEJO_DOWNLOAD_HOSTS)
     target = API(f'https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}',
