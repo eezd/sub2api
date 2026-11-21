@@ -2,7 +2,7 @@
 
 本指南适用于 [eezd/sub2api](https://github.com/eezd/sub2api)。欢迎提交可复现的 Bug、功能建议、文档修正、测试和代码改进。中文或英文均可，保留错误消息、字段名和命令的原文。
 
-Gitea 切换验收后，日常开发从私有主仓库的 `dev` 起步，`main` 只接收已审查的稳定提交并托管发布控制。GitHub 的公开 `production`、已有安装和发布记录继续保留，不推送开发分支。迁移尚未完成的 checkout 不要自行改写现有远端；以维护者确认的切换状态为准。上游代码按需引入；不要把 PR 发到上游 `main`。运维 CLI、监控及生产部署脚本属于 sub2api-operate。
+Forgejo 切换验收后，日常开发从私有主仓库的 `dev` 起步，`main` 只接收已审查的稳定提交并托管发布控制。GitHub 的公开 `production`、已有安装和发布记录继续保留，不推送开发分支。迁移尚未完成的 checkout 不要自行改写现有远端；以维护者确认的切换状态为准。上游代码按需引入；不要把 PR 发到上游 `main`。运维 CLI、监控及生产部署脚本属于 sub2api-operate。
 
 ## Agent 使用建议与披露
 
@@ -150,7 +150,7 @@ printf '证据保存在 %s；人工脱敏后只分享必要片段。\n' "$repro_
 
 ### 分支与范围
 
-Gitea 完成切换并授予访问权限后，从该主仓库的 `dev` 建立功能分支；已有 checkout 先确认远端和未提交改动。
+Forgejo 完成切换并授予访问权限后，从该主仓库的 `dev` 建立功能分支；已有 checkout 先确认远端和未提交改动。
 
 ```bash
 git clone https://git.134333.xyz/eezd/sub2api.git
@@ -212,7 +212,7 @@ pnpm --dir frontend run dev
 
 ### CI 工作流维护
 
-[旧 GitHub 工作流](.github/workflow-archive/legacy-github-actions)及[检查矩阵](.github/ci/README.md)不再执行，保留为历史参考。Gitea 切换完成后不再依靠 GitHub 自动检查或发版；按下表运行实际改动所需的本地检查。Gitea [手动发布工作流](.gitea/workflows/sub2api-manual-release.yml)仅由维护者经 `release.sh` 手动调度，不随 PR、push 或 tag 自动运行。运行条件与发布边界见 [Gitea 发布指南](deploy/GITEA_RELEASE.md)。
+[旧 GitHub 工作流](.github/workflow-archive/legacy-github-actions)及[检查矩阵](.github/ci/README.md)不再执行，保留为历史参考。Forgejo 切换完成后不再依靠 GitHub 自动检查或发版；按下表运行实际改动所需的本地检查。Forgejo [手动发布工作流](.forgejo/workflows/sub2api-manual-release.yml)仅由维护者经 `release.sh` 手动调度，不随 PR、push 或 tag 自动运行。运行条件与发布边界见 [Forgejo 发布指南](deploy/GITEA_RELEASE.md)。
 
 可复用的回归测试优先进入现有测试集或按路径触发的工作流。为单次 PR 添加的固定基线 RED/GREEN、截图和试用构建应在完成后移入[历史 CI 归档](.github/workflow-archive/README.md)，避免长期绑定已合并分支或为无关 PR 创建跳过的检查。归档只移走工作流入口，测试源码和取证脚本继续保留。
 
@@ -254,7 +254,7 @@ UI 改动补充可复核的前后截图、交互步骤与相关语言覆盖；�
 
 1. 标题概括用户可见的改动，可使用 `fix:`、`feat:`、`docs:` 或 `test:`。按 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 填写问题、行为变化、复现/验收、实际验证、兼容性和文档变化；小型文档 PR 可简化不适用的小节。
 2. 完整解决某个 Issue 才写 `Fixes #编号`；部分修复、调查或补充文档用 `Refs #编号`。汇总 Issue 中的其他问题仍未解决时，不应自动关闭整个 Issue。
-3. 自查后只提交相关文件。切换完成后向 Gitea 的功能分支推送，选择 `dev` 作为 PR base；`main` 的稳定提交由维护者在审查后推进。不要推送 GitHub 分发分支。
+3. 自查后只提交相关文件。切换完成后向 Forgejo 的功能分支推送，选择 `dev` 作为 PR base；`main` 的稳定提交由维护者在审查后推进。不要推送 GitHub 分发分支。
 4. 根据审查意见在原 PR head 追加修复提交，保留原作者提交及上下文。不要先合并再补修复来绕开分支权限；没有写权限时保留补丁并说明具体阻碍。
 5. 追加提交或解决冲突后重新运行受影响检查，CI 结果应对应当前 head。将失败、跳过和未运行项写清楚；没有真实验证过的结论不要标记为通过。
 6. 涉及配置、API 或迁移时说明默认值、升级步骤、旧数据兼容和回滚限制。数据库迁移不能仅靠回退二进制撤销。

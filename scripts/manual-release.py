@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Trusted Gitea release controller. Run only from the workflow on main."""
+"""Trusted Forgejo release controller. Run only from the workflow on main."""
 
 import base64
 from collections import deque
 import datetime as dt
-import fcntl
 import hashlib
 import ipaddress
 import json
@@ -23,10 +22,11 @@ from release_build import IMAGE, LIMIT, ROOT, build, names, oci_image, run, sha
 API = 'https://git.134333.xyz/api/v1'
 REPO = 'eezd/sub2api'
 WEB = API.removesuffix('/api/v1') + '/' + REPO
-STATE = Path('/docker/gitea/mirrors/sub2api')
 COMPLETE = 'release-complete.json'
 HEX = re.compile(r'[0-9a-f]{40}')
+SHA256 = re.compile(r'[0-9a-f]{64}')
 VERSION = re.compile(r'\d{8}-[0-9a-f]{8}')
+WORKFLOW = 'sub2api-manual-release.yml'
 
 
 def require(condition, message):
@@ -34,53 +34,55 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def packed(value):
+    return (json.dumps(value, sort_keys=True, indent=2) + '\n').encode()
+
+
+def originals(version):
+    return [*names(version), 'SHA256SUMS', 'build.json', 'image.oci']
+
+
 def utc_now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
-
-
-def write_json(path, data):
-    temporary = path.with_suffix('.next')
-    with temporary.open('w') as file:
-        json.dump(data, file, sort_keys=True, indent=2)
-        file.write('\n')
-        file.flush()
-        os.fsync(file.fileno())
-    temporary.replace(path)
-    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
 
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-class Gitea:
+class Forgejo:
     def __init__(self, token):
-        require(token, 'Missing GITEA_RELEASE_TOKEN')
+        require(token, 'Missing FORGEJO_RELEASE_TOKEN')
         self.token = token
 
-    def request(self, path, method='GET', data=None, *, missing=False, raw=False, content_type='application/json'):
+    def request(self, path, method='GET', data=None, *, missing=False, raw=False,
+                content_type='application/json'):
         url = path if path.startswith('https://') else API + path
         parsed = urllib.parse.urlsplit(url)
-        require((parsed.scheme, parsed.netloc) == ('https', 'git.134333.xyz'), 'Unexpected authenticated Gitea origin')
+        require((parsed.scheme, parsed.netloc) == ('https', 'git.134333.xyz'), 'Unexpected authenticated Forgejo origin')
         if data is not None and not isinstance(data, bytes):
             data = json.dumps(data).encode()
-        headers = {'Content-Type': content_type, 'Accept': 'application/octet-stream' if raw else 'application/json'}
+        headers = {'Content-Type': content_type, 'Accept': 'application/octet-stream' if raw else 'application/json',
+                   'User-Agent': 'sub2api-forgejo-release'}
         try:
             with http_request(url, 'token ' + self.token, method=method, data=data, headers=headers,
                               timeout=180, limit=LIMIT) as (status, _, response):
                 if missing and status == 404:
                     return None
                 if not 200 <= status < 300:
-                    raise RuntimeError(f'Gitea {method} {parsed.path}: HTTP {status}')
+                    raise RuntimeError(f'Forgejo {method} {parsed.path}: HTTP {status}')
                 result = response.read(LIMIT + 1)
         except OSError:
-            raise RuntimeError(f'Gitea {method} {parsed.path}: network error; reconcile before retrying') from None
-        require(len(result) <= LIMIT, 'Oversized Gitea response')
+            raise RuntimeError(f'Forgejo {method} {parsed.path}: network error; reconcile before retrying') from None
+        require(len(result) <= LIMIT, 'Oversized Forgejo response')
         return result if raw else json.loads(result) if result else None
+
+    def pages(self, path):
+        separator = '&' if '?' in path else '?'
+        page = 1
+        while rows := self.request(f'{path}{separator}limit=50&page={page}'):
+            yield from rows
+            page += 1
 
     def repo(self, path='', *args, **kwargs):
         return self.request('/repos/' + REPO + path, *args, **kwargs)
@@ -92,13 +94,13 @@ class Gitea:
             return release
         drafts = self.repo('/releases?draft=true&tag_filter=' + version)
         matches = [row for row in drafts if row['tag_name'] == version]
-        require(len(matches) <= 1, f'Multiple Gitea releases for {version}')
+        require(len(matches) <= 1, f'Multiple Forgejo releases for {version}')
         return matches[0] if matches else None
 
     def assets(self, release):
-        rows = self.repo(f'/releases/{release["id"]}/assets?limit=50')
+        rows = self.repo(f'/releases/{release["id"]}/assets')
         assets = {row['name']: row for row in rows}
-        require(len(assets) == len(rows), 'Duplicate Gitea release attachment')
+        require(len(assets) == len(rows), 'Duplicate Forgejo release attachment')
         return assets
 
     def download(self, asset):
@@ -140,8 +142,9 @@ def baseline(records, branch, commit):
                 distance[parent] = depth + 1
                 pending.append((parent, depth + 1))
     candidates = [row for row in past if row['source_sha'] in distance]
+    require(candidates, f'No reachable release baseline for {branch}; confirm a new baseline before publishing')
     return min(candidates, key=lambda row: (distance[row['source_sha']],
-               -dt.datetime.fromisoformat(row['completed_at']).timestamp(), row['version']), default=None)
+               -dt.datetime.fromisoformat(row['completed_at']).timestamp(), row['version']))
 
 
 def notes(previous, commit):
@@ -163,7 +166,7 @@ def matches_release(release, row):
     version = row['version']
     require(release and release['tag_name'] == version and release['name'] == version and
             release['body'] == row['body'] and release['prerelease'] is False,
-            f'Gitea Release conflicts with reserved version {version}')
+            f'Forgejo Release conflicts with version {version}')
 
 
 def tag(api, row, *, create=False):
@@ -171,137 +174,143 @@ def tag(api, row, *, create=False):
     ref = 'refs/tags/' + version
     remote = api.git('ls-remote', WEB + '.git', ref, ref + '^{}')
     if not remote and create:
-        api.repo('/tags', 'POST', {'tag_name': version, 'target': commit, 'message': 'Release ' + version})
+        api.repo('/tags', 'POST', {'tag_name': version, 'target': commit, 'message': packed(attempt_identity(row)).decode().strip()})
         remote = api.git('ls-remote', WEB + '.git', ref, ref + '^{}')
     refs = dict(line.split('\t', 1)[::-1] for line in remote.splitlines())
     require(ref in refs and refs.get(ref + '^{}') == commit, f'Missing or conflicting annotated tag {version}')
 
 
-def checkpoint(directory, row):
-    files = set(names(row['version'])) | {'build.json', 'SHA256SUMS', 'image.oci'}
-    proof = json.loads((directory / 'checkpoint.json').read_text())
-    require(set(proof) == files and all(sha(directory / name) == proof[name] for name in files), 'Checkpoint hash mismatch')
+def file_hashes(metadata):
+    packages = {pkg['name']: pkg['sha256'] for pkg in metadata['packages']}
+    require(len(packages) == len(metadata['packages']) and set(packages) == set(names(metadata['version'])) and
+            all(SHA256.fullmatch(value) for value in packages.values()), 'Invalid package manifest')
+    return packages
+
+
+def image_metadata(metadata):
+    image = metadata['image']
+    require(image['ref'] == f'{IMAGE}:{metadata["version"]}' and
+            set(image['platforms']) == {'linux/amd64', 'linux/arm64'} and
+            all(value.startswith('sha256:') and SHA256.fullmatch(value[7:])
+                for value in [image['digest'], *image['platforms'].values()]), 'Invalid Forgejo image identity')
+    return image
+
+
+def sums_bytes(packages):
+    return ''.join(f'{packages[name]}  {name}\n' for name in sorted(packages)).encode()
+
+
+def verify_sums(content, packages):
+    require(sorted(content.splitlines()) == sorted(sums_bytes(packages).splitlines()), 'Invalid SHA256SUMS')
+
+
+def verify_artifacts(directory, row, proof):
+    require(set(proof) == set(originals(row['version'])) and
+            all(sha(directory / name) == value for name, value in proof.items()), 'Build artifact hash mismatch')
     metadata = json.loads((directory / 'build.json').read_text())
     require(all(metadata[key] == row[key] for key in ('version', 'source_sha', 'source_branch', 'previous_tag', 'built_at')),
-            'Checkpoint belongs to a different release')
-    require({pkg['name']: pkg['sha256'] for pkg in metadata['packages']} == {name: proof[name] for name in names(row['version'])},
-            'Invalid package manifest')
-    require(metadata['image'] == oci_image(directory / 'image.oci', row['version']), 'Checkpoint OCI mismatch')
-    return metadata, proof
+            'Build belongs to a different release')
+    packages = file_hashes(metadata)
+    require(all(proof[name] == value for name, value in packages.items()), 'Invalid package manifest')
+    verify_sums((directory / 'SHA256SUMS').read_bytes(), packages)
+    require(image_metadata(metadata) == oci_image(directory / 'image.oci', row['version']), 'Build OCI mismatch')
+    return metadata
+
+
+def inspect_registry(authfile, reference):
+    result = subprocess.run(['skopeo', 'inspect', '--authfile', authfile, '--raw', 'docker://' + reference],
+                            capture_output=True)
+    if result.returncode:
+        if result.returncode in (1, 2) and any(code in result.stderr.lower() for code in
+                                               (b'manifest unknown', b'name unknown')):
+            return None
+        raise RuntimeError('Cannot inspect Forgejo Registry manifest')
+    return result.stdout
 
 
 def registry(authfile, image, directory=None):
     ref, expected = image['ref'], image['digest']
-
-    def inspect(reference):
-        result = subprocess.run(['skopeo', 'inspect', '--authfile', authfile, '--raw', 'docker://' + reference], capture_output=True)
-        if result.returncode:
-            if b'manifest unknown' in result.stderr.lower():
-                return None
-            raise RuntimeError('Cannot inspect Gitea Registry manifest')
-        return result.stdout
-
-    raw = inspect(ref)
+    raw = inspect_registry(authfile, ref)
     if raw is None and directory is not None:
         subprocess.run(['skopeo', 'copy', '--all', '--preserve-digests', '--dest-authfile', authfile,
                         'oci-archive:' + str(directory / 'image.oci'), 'docker://' + ref], check=True)
-        raw = inspect(ref)
-    require(raw is not None and 'sha256:' + digest(raw) == expected, 'Gitea Registry digest conflict')
+        raw = inspect_registry(authfile, ref)
+    require(raw is not None and 'sha256:' + digest(raw) == expected, 'Forgejo Registry digest conflict')
     platforms = {f'{item["platform"]["os"]}/{item["platform"]["architecture"]}': item['digest']
                  for item in json.loads(raw)['manifests']}
-    require(platforms == image['platforms'], 'Gitea Registry platforms differ')
+    require(platforms == image['platforms'], 'Forgejo Registry platforms differ')
     for value in platforms.values():
-        leaf = inspect(IMAGE + '@' + value)
-        require(leaf is not None and 'sha256:' + digest(leaf) == value, 'Gitea Registry platform manifest not readable')
+        leaf = inspect_registry(authfile, IMAGE + '@' + value)
+        require(leaf is not None and 'sha256:' + digest(leaf) == value, 'Forgejo Registry platform manifest not readable')
 
 
 def marker(row, build_sha):
     return {'version': row['version'], 'source_sha': row['source_sha'], 'build_sha256': build_sha}
 
 
-def verify(api, release, row, proof, *, complete=False):
+def verify(api, release, row, proof, *, complete=False, draft=False):
     matches_release(release, row)
-    require(release['draft'] is False, 'Expected a formal Gitea Release')
+    require(release['draft'] is draft, 'Unexpected Forgejo Release draft state')
     assets = api.assets(release)
     expected = set(proof) - {'image.oci'}
-    require(expected <= assets.keys() <= expected | {COMPLETE}, 'Unexpected Gitea Release attachment set')
+    require(expected <= assets.keys() <= expected | {COMPLETE}, 'Unexpected Forgejo Release attachment set')
     for name in expected:
-        require(digest(api.download(assets[name])) == proof[name], f'Gitea attachment digest differs: {name}')
+        require(digest(api.download(assets[name])) == proof[name], f'Forgejo attachment digest differs: {name}')
     if complete or COMPLETE in assets:
         require(COMPLETE in assets and json.loads(api.download(assets[COMPLETE])) == marker(row, proof['build.json']),
-                'Missing or conflicting Gitea completion record')
+                'Missing or conflicting Forgejo completion record')
 
 
-def pending(api, row, directory):
-    if row.get('phase') == 'complete':
-        return False
-    if row.get('phase') != 'building' or directory.exists():
-        return True
-    release = api.release(row['version'])
-    if release is not None:
-        matches_release(release, row)
-        return True
-    return bool(api.git('ls-remote', WEB + '.git', 'refs/tags/' + row['version']))
-
-
-def publish(api, authfile, row, directory, path):
-    metadata, proof = checkpoint(directory, row)
-    if row['phase'] == 'complete':
-        tag(api, row)
-        verify(api, api.release(row['version']), row, proof, complete=True)
-        registry(authfile, metadata['image'])
-        return
-    row['phase'] = 'publishing'
-    write_json(path, row)
+def publish(api, authfile, row, directory, proof):
+    metadata = verify_artifacts(directory, row, proof)
     tag(api, row, create=True)
-    release = api.release(row['version'])
-    if not release:
-        release = api.repo('/releases', 'POST', {'tag_name': row['version'], 'target_commitish': row['source_sha'],
-                           'name': row['version'], 'body': row['body'], 'draft': True, 'prerelease': False})
+    require(api.release(row['version']) is None, 'Release appeared while building; stop without overwriting')
+    release = api.repo('/releases', 'POST', {'tag_name': row['version'], 'target_commitish': row['source_sha'],
+                       'name': row['version'], 'body': row['body'], 'draft': True, 'prerelease': False})
     matches_release(release, row)
-    assets = api.assets(release)
-    expected = set(proof) - {'image.oci'}
-    require(assets.keys() <= expected | {COMPLETE}, 'Unexpected existing release assets')
-    require(not release['draft'] or COMPLETE not in assets, 'Draft unexpectedly has a completion record')
-    # Validate all existing names before any new uploads.
-    for name in assets.keys() & expected:
-        require(digest(api.download(assets[name])) == proof[name], f'Existing Gitea asset conflicts: {name}')
-    if release['draft']:
-        for name in sorted(expected - assets.keys()):
-            api.upload(release, directory / name)
-    else:
-        require(expected <= assets.keys(), 'Formal Release is missing original attachments')
-    registry(authfile, metadata['image'], directory if release['draft'] else None)
-    if release['draft']:
-        release = api.repo(f'/releases/{release["id"]}', 'PATCH', {'draft': False})
+    require(release['draft'] is True and not api.assets(release), 'Expected a new empty draft')
+    for name in sorted(set(proof) - {'image.oci'}):
+        api.upload(release, directory / name)
+    registry(authfile, metadata['image'], directory)
+    verify(api, release, row, proof, draft=True)
+    release = api.repo(f'/releases/{release["id"]}', 'PATCH', {'draft': False})
     tag(api, row)
     verify(api, release, row, proof)
-    if COMPLETE not in api.assets(release):
-        with tempfile.TemporaryDirectory() as scratch:
-            completion = Path(scratch) / COMPLETE
-            write_json(completion, marker(row, proof['build.json']))
-            api.upload(release, completion)
+    completion = directory / COMPLETE
+    completion.write_bytes(packed(marker(row, proof['build.json'])))
+    api.upload(release, completion)
     verify(api, release, row, proof, complete=True)
-    row.update(phase='complete', completed_at=utc_now())
-    write_json(path, row)
 
 
 def release_inputs():
     branch, commit, run_id = (os.environ[key] for key in ('SOURCE_BRANCH', 'SOURCE_SHA', 'RELEASE_RUN_ID'))
     require(HEX.fullmatch(commit) and re.fullmatch(r'[0-9]+-[0-9]+', run_id), 'Invalid source SHA or run ID')
     require(not branch.startswith('-') and git('check-ref-format', '--branch', branch) == branch, 'Invalid source branch')
+    require(str(uuid.UUID(os.environ.get('REQUEST_ID', ''))) == os.environ['REQUEST_ID'], 'Invalid request ID')
+    require(HEX.fullmatch(os.environ.get('TRUSTED_SHA', '')), 'Invalid trusted control SHA')
     require(os.environ.get('RELEASE_REF') == 'refs/heads/main', 'Release must run from trusted main')
     return branch, commit, run_id
 
 
 def worker_test_engine():
-    approval = STATE / 'dedicated-worker-approved'
-    require(STATE.is_dir() and os.path.ismount(STATE) and approval.is_file(),
-            'Dedicated release worker and its approved persistent mount are required')
-    test_engine = ipaddress.IPv4Address(approval.read_text().strip())
-    require(any(test_engine in ipaddress.IPv4Network(block) for block in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')),
-            'A dedicated integration Docker host on a private network is required')
-    require(run('docker', 'info', '--format', '{{.Architecture}}') in ('x86_64', 'amd64'), 'Require a native Linux amd64 release worker')
+    def private_engine(variable):
+        name = os.environ.get(variable, '')
+        try:
+            address = ipaddress.IPv4Address(name)
+        except ValueError:
+            raise ValueError(f'{variable} must name an approved non-production Docker IPv4 address') from None
+        require(any(address in ipaddress.IPv4Network(block) for block in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')),
+                f'{variable} must be an RFC1918 address')
+        return address
+
+    build_engine = private_engine('SUB2API_BUILD_DOCKER_IP')
+    test_engine = private_engine('SUB2API_TEST_DOCKER_IP')
+    require(build_engine != test_engine, 'Build and integration Docker engines must be independent')
+    # Never fall back to the shared runner's Docker socket or context.
+    os.environ.pop('DOCKER_CONTEXT', None)
+    os.environ['DOCKER_HOST'] = f'tcp://{build_engine}:2375'
+    require(run('docker', 'info', '--format', '{{.OSType}}/{{.Architecture}}') in ('linux/x86_64', 'linux/amd64'),
+            'Require a native Linux amd64 build engine')
     return str(test_engine)
 
 
@@ -328,74 +337,194 @@ def verify_build():
     print(f'Build verified: {version} ({commit}); nothing published', flush=True)
 
 
+def native_tags(api):
+    result = set()
+    for line in api.git('ls-remote', '--tags', '--refs', WEB + '.git').splitlines():
+        version = line.split('\t', 1)[1].removeprefix('refs/tags/')
+        if VERSION.fullmatch(version):
+            result.add(version)
+    return result
+
+
+def release_history(api):
+    accepted, unfinished = {}, native_tags(api)
+    seen = set()
+    # A writer sees drafts by default; the optional booleans would filter out other states.
+    path = '/repos/' + REPO + '/releases'
+    for release in api.pages(path):
+        version = release['tag_name']
+        if not VERSION.fullmatch(version):
+            continue  # Imported historical distribution tags are not Forgejo baselines.
+        require(version not in seen, f'Duplicate Forgejo Release for {version}')
+        seen.add(version)
+        assets = api.assets(release)
+        if COMPLETE not in assets:
+            unfinished.add(version)
+            continue
+        require(release['draft'] is False and release['prerelease'] is False,
+                f'Completion record on non-final Release: {version}')
+        expected = set(names(version)) | {'build.json', 'SHA256SUMS', COMPLETE}
+        require(assets.keys() == expected, f'Completed Release has unexpected attachments: {version}')
+        build_bytes = api.download(assets['build.json'])
+        metadata = json.loads(build_bytes)
+        row = dict(metadata, body=release['body'], completed_at=release['published_at'])
+        validate_metadata(row, version)
+        require(dt.datetime.fromisoformat(row['completed_at']).tzinfo is not None,
+                f'Invalid Forgejo Release timestamp: {version}')
+        matches_release(release, row)
+        require(json.loads(api.download(assets[COMPLETE])) == marker(row, digest(build_bytes)),
+                f'Invalid Forgejo completion record: {version}')
+        sums = api.download(assets['SHA256SUMS'])
+        proof = file_hashes(metadata)
+        image_metadata(metadata)
+        verify_sums(sums, proof)
+        proof.update({'build.json': digest(build_bytes), 'SHA256SUMS': digest(sums)})
+        tag(api, row)
+        accepted[version] = (release, row, proof)
+        unfinished.discard(version)
+    return accepted, unfinished
+
+
+def validate_metadata(row, version):
+    require(row['version'] == version and HEX.fullmatch(row['source_sha']) and
+            version.endswith('-' + row['source_sha'][:8]) and row['source_branch'] and
+            (row['previous_tag'] is None or VERSION.fullmatch(row['previous_tag'])) and
+            isinstance(row['body'], str) and dt.datetime.fromisoformat(row['built_at']).tzinfo is not None,
+            f'Malformed Forgejo build metadata: {version}')
+
+
+def attempt_identity(row):
+    return {key: row[key] for key in ('version', 'source_sha', 'source_branch', 'run_id', 'request_id', 'control_sha', 'actor_id')}
+
+
+def failed_attempt(api, row, current_run):
+    tag(api, row)
+    annotation = api.repo('/tags/' + row['version'])
+    owner = json.loads(annotation['message'])
+    require(annotation['name'] == row['version'] and annotation['commit']['sha'] == row['source_sha'] and
+            owner['version'] == row['version'] and owner['source_sha'] == row['source_sha'] and
+            owner['source_branch'] == row['source_branch'] and HEX.fullmatch(owner['control_sha']) and
+            re.fullmatch(r'[0-9]+-[0-9]+', owner['run_id']) and
+            str(uuid.UUID(owner['request_id'])) == owner['request_id'], 'Unknown unfinished version ownership')
+    old_id = int(owner['run_id'].split('-')[0])
+    require(old_id != int(current_run.split('-')[0]), 'Cannot clean up an active or rerun task')
+    previous = api.repo('/actions/runs/' + str(old_id))
+    payload = json.loads(previous['event_payload'])
+    require(previous['id'] == old_id and previous['repository']['full_name'] == REPO and
+            previous['workflow_id'] == WORKFLOW and previous['event'] == 'workflow_dispatch' and
+            previous['commit_sha'] == owner['control_sha'] and payload['ref'] == 'refs/heads/main' and
+            payload['inputs'] == {'source_branch': owner['source_branch'], 'source_sha': owner['source_sha'],
+                                  'request_id': owner['request_id']}, 'Original Actions run identity differs')
+    require(previous['status'] in ('failure', 'cancelled', 'skipped') and previous.get('stopped'),
+            'Original Actions run has not terminated unsuccessfully')
+    require(type(owner['actor_id']) is int and owner['actor_id'] > 0, 'Unknown release credential identity')
+    ensure_no_other_runs(api, current_run)
+    return owner
+
+
+def ensure_no_other_runs(api, current_run):
+    page = 1
+    seen = set()
+    total = None
+    while True:
+        response = api.repo(f'/actions/runs?workflow_id={WORKFLOW}&limit=50&page={page}')
+        count = response['total_count']
+        require(type(count) is int and count >= 1 and (total is None or count == total),
+                'Unknown or changing Actions run pagination')
+        total = count
+        rows = response['workflow_runs']
+        require(isinstance(rows, list), 'Unknown Actions run listing')
+        for entry in rows:
+            require(type(entry['id']) is int and entry['id'] not in seen and entry['workflow_id'] == WORKFLOW and
+                    entry['repository']['full_name'] == REPO, 'Unknown or repeated Actions run identity')
+            seen.add(entry['id'])
+            if entry['id'] != int(current_run.split('-')[0]):
+                require(entry['status'] in ('success', 'failure', 'cancelled', 'skipped') and entry.get('stopped'),
+                        'Another release task may still be writing; no cleanup allowed')
+        if not rows:
+            require(len(seen) == total, 'Incomplete Actions run pagination; no cleanup allowed')
+            require(int(current_run.split('-')[0]) in seen, 'Current Actions run missing from listing; no cleanup allowed')
+            break
+        page += 1
+
+
+def clean_unfinished(api, row, run_id, release, package):
+    previous = failed_attempt(api, row, run_id)
+    if release is not None:
+        require(release['tag_name'] == release['name'] == row['version'] and
+                release['prerelease'] is False and release['author']['id'] == previous['actor_id'],
+                'Unknown unfinished Release identity')
+        assets = api.assets(release)
+        require(COMPLETE not in assets and assets.keys() <= set(originals(row['version'])) - {'image.oci'},
+                'Unknown or completed Release must not be deleted')
+        if 'build.json' in assets:
+            metadata = json.loads(api.download(assets['build.json']))
+            require(all(metadata[key] == row[key] for key in ('version', 'source_sha', 'source_branch')),
+                    'Unfinished build metadata conflicts')
+            file_hashes(metadata)
+            image_metadata(metadata)
+    if package is not None:
+        require(package['name'] == REPO.split('/')[1] and package['version'] == row['version'] and
+                package['type'] == 'container' and package['owner']['login'] == REPO.split('/')[0] and
+                package['creator']['id'] == previous['actor_id'], 'Unknown unfinished image identity')
+    # All identities are checked before the first DELETE. Unknown DELETE results abort, never replay.
+    if release is not None:
+        api.repo(f'/releases/{release["id"]}', 'DELETE')
+    if package is not None:
+        api.request(package_path(row['version']), 'DELETE')
+    require(api.release(row['version']) is None and
+            api.request(package_path(row['version']), missing=True) is None, 'Exact cleanup not confirmed')
+
+
+def package_path(version):
+    owner, name = REPO.split('/')
+    return f'/packages/{owner}/container/{name}/{version}'
+
+
+def continue_release(api, authfile, branch, commit, run_id):
+    version = version_for(commit)
+    history, unfinished = release_history(api)
+    if version in history:
+        release, row, proof = history[version]
+        require(row['source_sha'] == commit, f'Version SHA collision: {version}')
+        verify(api, release, row, proof, complete=True)
+        registry(authfile, row['image'])
+        return
+    row = {'version': version, 'source_sha': commit, 'source_branch': branch}
+    release = api.release(version)
+    package = api.request(package_path(version), missing=True)
+    if version in unfinished or release is not None or package is not None:
+        clean_unfinished(api, row, run_id, release, package)
+    require(inspect_registry(authfile, f'{IMAGE}:{version}') is None, 'Untracked Registry version')
+    previous = baseline([record for _, record, _ in history.values()], branch, commit)
+    row.update(built_at=utc_now(), previous_tag=previous['version'] if previous else None,
+               body=notes(previous, commit), run_id=run_id, request_id=os.environ['REQUEST_ID'],
+               control_sha=os.environ['TRUSTED_SHA'], actor_id=api.actor_id)
+    with tempfile.TemporaryDirectory(prefix='sub2api-release-') as scratch:
+        directory = Path(scratch)
+        build(directory, row, run_id, worker_test_engine())
+        proof = {name: sha(directory / name) for name in originals(version)}
+        verify_artifacts(directory, row, proof)
+        publish(api, authfile, row, directory, proof)
+
+
 def execute():
     branch, commit, run_id = release_inputs()
-    test_engine = worker_test_engine()
     os.umask(0o077)
-    api = Gitea(os.environ.get('GITEA_RELEASE_TOKEN'))
+    api = Forgejo(os.environ.get('FORGEJO_RELEASE_TOKEN'))
     identity = api.request('/user')
     repo = api.repo()
     require(identity.get('login') and repo.get('full_name') == REPO and repo.get('private') is True and
-            repo.get('permissions', {}).get('push') is True, 'Release requires write access to the private Gitea primary')
-    with (STATE / '.release.lock').open('a') as lock, tempfile.TemporaryDirectory() as authdir:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        branch_ref = 'refs/heads/' + branch
-        api.git('fetch', '--no-tags', WEB + '.git', branch_ref)
+            repo.get('permissions', {}).get('push') is True, 'Release requires write access to the private Forgejo primary')
+    api.actor_id = identity['id']
+    with tempfile.TemporaryDirectory() as authdir:
+        api.git('fetch', '--no-tags', WEB + '.git', 'refs/heads/' + branch)
         require_ancestor(commit, 'FETCH_HEAD')
-        version = version_for(commit)
         authfile = str(Path(authdir) / 'auth.json')
         subprocess.run(['skopeo', 'login', '--authfile', authfile, '--username', identity['login'], '--password-stdin',
                         'git.134333.xyz'], input=api.token, text=True, check=True)
-        records = STATE / 'records'
-        records.mkdir(exist_ok=True)
-        path = records / (version + '.json')
-        directory = STATE / version
-        rows = [json.loads(file.read_text()) for file in sorted(records.glob('*.json'))]
-        for row in rows:
-            require(VERSION.fullmatch(row['version']), 'Malformed persisted release record')
-            if row['version'] != version and pending(api, row, STATE / row['version']):
-                raise RuntimeError('Recover pending version first: ' + row['version'])
-        if path.exists():
-            row = json.loads(path.read_text())
-            require(row['source_sha'] == commit and row.get('phase') in ('building', 'publishing', 'complete'),
-                    'Version collision or unrecognized persisted state')
-        else:
-            require(not directory.exists() and not api.release(version) and
-                    not api.git('ls-remote', WEB + '.git', 'refs/tags/' + version), 'Untracked remote or local release state')
-            candidates = [row for row in rows if row.get('phase') == 'complete' and row['source_branch'] == branch]
-            for candidate in candidates:
-                candidate_dir = STATE / candidate['version']
-                build_sha = sha(candidate_dir / 'build.json')
-                release = api.release(candidate['version'])
-                matches_release(release, candidate)
-                assets = api.assets(release)
-                require(not release['draft'] and COMPLETE in assets and 'build.json' in assets and
-                        json.loads(api.download(assets[COMPLETE])) == marker(candidate, build_sha) and
-                        digest(api.download(assets['build.json'])) == build_sha, 'Prior release lacks a valid completion record')
-            previous = baseline(candidates, branch, commit)
-            row = {'version': version, 'source_sha': commit, 'source_branch': branch, 'built_at': utc_now(),
-                   'previous_tag': previous['version'] if previous else None, 'body': notes(previous, commit), 'phase': 'building'}
-            write_json(path, row)
-        if not directory.exists():
-            require(row['phase'] == 'building' and not pending(api, row, directory),
-                    'Original release artifacts are missing; recovery requires the original checkpoint')
-            with tempfile.TemporaryDirectory(prefix='.candidate-', dir=STATE) as scratch:
-                staging = Path(scratch) / version
-                staging.mkdir()
-                build(staging, row, run_id, test_engine)
-                proof = {name: sha(staging / name) for name in [*names(version), 'build.json', 'SHA256SUMS', 'image.oci']}
-                for name in proof:
-                    with (staging / name).open('rb') as file:
-                        os.fsync(file.fileno())
-                write_json(staging / 'checkpoint.json', proof)
-                staging.rename(directory)
-                fd = os.open(STATE, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(fd)
-                finally:
-                    os.close(fd)
-        publish(api, authfile, row, directory, path)
-        print('Verified Gitea release:', WEB + '/releases/tag/' + version, flush=True)
+        continue_release(api, authfile, branch, commit, run_id)
+    print('Verified Forgejo release:', WEB + '/releases/tag/' + version_for(commit), flush=True)
 
 
 if __name__ == '__main__':

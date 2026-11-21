@@ -24,18 +24,27 @@ concurrency:
 jobs:
   release:
     if: gitea.ref == 'refs/heads/main'
-    runs-on: sub2api-release-dedicated
+    runs-on: docker
     timeout-minutes: 115
+    container:
+      image: node:24-trixie
     env:
       SOURCE_BRANCH: ${{ inputs.source_branch }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       RELEASE_REF: ${{ gitea.ref }}
       RELEASE_RUN_ID: ${{ gitea.run_id }}-${{ gitea.run_attempt }}
+      SUB2API_BUILD_DOCKER_IP: ${{ vars.SUB2API_BUILD_DOCKER_IP }}
+      SUB2API_TEST_DOCKER_IP: ${{ vars.SUB2API_TEST_DOCKER_IP }}
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ gitea.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Install release control tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl python3 docker-cli docker-buildx skopeo
       - name: Build and verify without publishing
         if: gitea.event.inputs.publish_release != 'true'
         run: python3 scripts/manual-release.py --verify-only
@@ -43,4 +52,5 @@ jobs:
         if: gitea.event.inputs.publish_release == 'true'
         env:
           GITEA_RELEASE_TOKEN: ${{ secrets.ALL_GITEA_TOKEN }}
+          SUB2API_STAGING_OWNER: ${{ vars.SUB2API_STAGING_OWNER }}
         run: python3 scripts/manual-release.py

@@ -16,6 +16,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_ARCHIVE = ROOT / '.github/workflow-archive/legacy-github-actions'
 spec = importlib.util.spec_from_file_location('release_matrix', Path(__file__).with_name('release_matrix.py'))
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
@@ -26,7 +27,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
         # BaseLoader follows Actions' string keys (PyYAML 1.1 otherwise reads on as True).
         self.workflows = {
             path.name: yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-            for path in (ROOT / '.github/workflows').glob('*.yml')
+            for path in WORKFLOW_ARCHIVE.glob('*.yml')
         }
 
     def test_branch_push_starts_nothing_and_custom_tag_starts_only_release(self):
@@ -301,7 +302,7 @@ class ReleaseMatrixTest(unittest.TestCase):
                 self.assertIn(':9.8.7-rc.1', log)
                 self.assertNotIn(':latest', log)
                 self.assertNotRegex(log, r':9(?:\.8)?(?:\s|$)')
-        workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+        workflow = yaml.safe_load((WORKFLOW_ARCHIVE / 'release.yml').read_text())
         self.assertIn("prerelease != 'true'", workflow['jobs']['sync-version-file']['if'])
         notification = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
         self.assertIn("prerelease != 'true'", notification['if'])
@@ -330,7 +331,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertIn('ghcr.io/exampleowner/sub2api:latest', log)
 
     def test_release_announcement_requires_explicit_opt_in(self):
-        workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+        workflow = yaml.safe_load((WORKFLOW_ARCHIVE / 'release.yml').read_text())
         trigger = workflow.get('on', workflow.get(True))
         self.assertIs(trigger['workflow_dispatch']['inputs']['notify_release']['default'], False)
         step = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
