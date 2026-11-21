@@ -41,7 +41,7 @@ USE_LFS = 'false'  # true / false，接入时检查整个纳入同步的历史
 FORGEJO_DOWNLOAD_HOSTS = ()  # 如有对象存储，填入已核实的 HTTPS authority；不发送令牌
 GITHUB_DOWNLOAD_HOSTS = ('release-assets.githubusercontent.com', 'objects.githubusercontent.com')
 
-VERSION = re.compile(r'[0-9]{8}-[0-9a-f]{8}')
+VERSION = re.compile(r'v[0-9]+\.[0-9]+\.[0-9]+-custom\.[0-9]+')
 SHA = re.compile(r'[0-9a-f]{40}')
 HASH = re.compile(r'[0-9a-f]{64}')
 PLATFORMS = ('linux/amd64', 'linux/arm64')
@@ -230,9 +230,18 @@ def run(args, phase, *, cwd=None, allowed=(0,)):
 
 
 class Snapshot:
-    def __init__(self, directory):
+    def __init__(self, directory, project=None):
         self.directory = directory
         self.git('init', '--bare', str(directory), phase='创建临时仓库')
+        if project is not None and (project / '.git').exists():
+            # 临时仓库不自动继承项目的 HTTPS helper；只复制认证设置，不带入 remote/hooks 等配置。
+            credentials = run(['git', '-C', str(project), 'config', '--local', '--null', '--get-regexp',
+                               r'^credential(\..*)?\.(helper|username|usehttppath)$'],
+                              '读取项目 Git 认证配置', allowed=(0, 1))
+            for entry in credentials.stdout.decode().split('\0'):
+                if entry:
+                    key, value = entry.split('\n', 1)
+                    self.git('config', '--local', '--add', key, value, phase='配置临时 Git 认证')
         self.git('remote', 'add', 'source', FORGEJO_GIT)
         self.git('remote', 'add', 'destination', GITHUB_GIT)
         self.git('fetch', '--no-tags', 'source', 'refs/heads/*:refs/heads/*', 'refs/tags/*:refs/tags/*',
@@ -339,8 +348,16 @@ def is_formal(release):
 def auth_file():
     require(shutil.which('skopeo'), '缺少命令：skopeo')
     value = os.environ.get('REGISTRY_AUTH_FILE')
-    require(value and Path(value).is_file(), '请显式提供可读的 REGISTRY_AUTH_FILE')
-    return str(Path(value).resolve())
+    path = Path(value) if value else Path.home() / '.config' / 'containers' / 'auth.json'
+    message = (f'Registry 认证文件不存在或不可读：{path}；'
+               '请用 skopeo login --authfile 登录源和目标 Registry，或设置 REGISTRY_AUTH_FILE 指定文件')
+    try:
+        require(path.is_file(), message)
+        with path.open('rb'):
+            pass
+        return str(path.resolve())
+    except OSError:
+        raise RuntimeError(message) from None
 
 
 class Version:
@@ -360,7 +377,7 @@ class Version:
         build = json.loads((self.path / BUILD).read_bytes())
         completion = json.loads((self.path / COMPLETE).read_bytes())
         self.sha = build['source_sha']
-        require(SHA.fullmatch(self.sha) and tag.endswith('-' + self.sha[:8]) and
+        require(SHA.fullmatch(self.sha) and VERSION.fullmatch(tag) and
                 snapshot.commit('refs/tags/' + tag) == self.sha and
                 build['version'] == completion['version'] == tag and completion['source_sha'] == self.sha and
                 completion['build_sha256'] == build_hash, '验收记录、TAG、SHA 或 build.json 哈希不一致')
@@ -434,7 +451,7 @@ class Version:
         print(f'{self.tag}：GitHub Release 与镜像已验收', flush=True)
 
 
-def sync(directory, source, target):
+def sync(directory, source, target, project=None):
     settings = target.json('', '读取 GitHub 仓库')
     require(settings.get('full_name', '').lower() == f'{GITHUB_OWNER}/{GITHUB_REPO}'.lower() and
             settings.get('private') is (GITHUB_PRIVATE == 'true') and settings.get('archived') is False and
@@ -444,7 +461,7 @@ def sync(directory, source, target):
     # Forgejo 只向有 Release 写权限的令牌显示草稿；同时要求保留版本形状的裸 TAG 不外推。
     require(source.json('', '读取 Forgejo 仓库').get('permissions', {}).get('push') is True,
             '请使用可查看 Forgejo 草稿的仓库写权限令牌')
-    snapshot = Snapshot(directory / 'git')
+    snapshot = Snapshot(directory / 'git', project)
     dest_refs = snapshot.target()
     releases = index(source.pages('/releases', '读取 Forgejo Release', size_key='limit'), 'tag_name', 'Forgejo Release')
     target_releases = index(target.pages('/releases', '读取 GitHub Release', size_key='per_page'),
@@ -535,7 +552,7 @@ def main(project):
         except BlockingIOError:
             raise RuntimeError('本项目已有同步任务，请稍后重试') from None
         with tempfile.TemporaryDirectory(prefix='forgejo-sync-') as directory:
-            sync(Path(directory), source, target)
+            sync(Path(directory), source, target, project)
 
 
 if __name__ == '__main__':

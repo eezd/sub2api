@@ -9,7 +9,6 @@ command -v python3 >/dev/null || { printf '缺少命令：python3\n' >&2; exit 1
 command -v curl >/dev/null || { printf '缺少命令：curl\n' >&2; exit 1; }
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 exec python3 - "$1" "$project_dir" <<'PY'
-import datetime
 import hashlib
 import json
 import os
@@ -31,6 +30,7 @@ WORKFLOW = 'sub2api-manual-release.yml'
 FORGEJO_DOWNLOAD_HOSTS = ()  # 如有对象存储，填入已核实的 HTTPS authority；不发送令牌
 WAIT_SECONDS = 7200
 POLL_SECONDS = 5
+VERSION = re.compile(r'v[0-9]+\.[0-9]+\.[0-9]+-custom\.[0-9]+')
 
 
 def fail(message):
@@ -110,6 +110,45 @@ def release_asset(release, name, origin, token):
     return request(url, token, phase='下载 ' + name, download_hosts=(origin.netloc, *FORGEJO_DOWNLOAD_HOSTS))
 
 
+def completed_release(base, sha, origin, token):
+    matches = []
+    seen = set()
+    page = 1
+    while True:
+        batch = request(f'{base}/releases?limit=50&page={page}', token, phase='查找已完成正式 Release')
+        if not isinstance(batch, list):
+            fail('Release 分页响应无效')
+        if not batch:
+            break
+        for release in batch:
+            version = release['tag_name']
+            if version in seen:
+                fail('Release 分页出现重复版本')
+            seen.add(version)
+            if (not VERSION.fullmatch(version) or release.get('draft') is not False or
+                    release.get('prerelease') is not False or
+                    not any(asset.get('name') == 'release-complete.json' for asset in release.get('assets', []))):
+                continue  # Imported historical releases have no new completion evidence.
+            build_bytes = release_asset(release, 'build.json', origin, token)
+            completion_bytes = release_asset(release, 'release-complete.json', origin, token)
+            build, completion = map(json.loads, (build_bytes, completion_bytes))
+            if build.get('source_sha') != sha and completion.get('source_sha') != sha:
+                continue
+            for metadata in (build, completion):
+                if metadata.get('source_sha') != sha or metadata.get('version') != version:
+                    fail('发布元数据的版本或完整 SHA 不匹配')
+            if completion.get('build_sha256') != hashlib.sha256(build_bytes).hexdigest():
+                fail('Forgejo 发布完成记录中的 build.json SHA256 不匹配')
+            tag = request(base + '/tags/' + quote(version), token, phase='核对正式 TAG')
+            if tag.get('name') != version or tag.get('commit', {}).get('sha') != sha:
+                fail('正式 TAG 与发布完整 SHA 不匹配')
+            matches.append(version)
+        page += 1
+    if len(matches) != 1:
+        fail('工作流结束，但未找到唯一绑定完整 SHA 的已完成正式 Release')
+    return matches[0]
+
+
 def main():
     if any('@@' in value for value in (API_URL, OWNER, REPO, WORKFLOW)):
         fail('发布模板尚未配置仓库和工作流')
@@ -126,13 +165,8 @@ def main():
     sha = branch_info['commit']['id']
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         fail('远端未返回有效的完整提交 SHA')
-    commit = request(base + '/git/commits/' + sha, token, phase='读取提交')
-    date = datetime.datetime.fromisoformat(commit['commit']['committer']['date'].replace('Z', '+00:00'))
-    if date.tzinfo is None:
-        fail('远端提交时间缺少时区')
-    version = date.astimezone(datetime.timezone.utc).strftime('%Y%m%d') + '-' + sha[:8]
     request_id = str(uuid.uuid4())
-    print(f'来源分支：{branch}\n完整 SHA：{sha}\n版本：{version}\n请求 ID：{request_id}', flush=True)
+    print(f'来源分支：{branch}\n完整 SHA：{sha}\n版本：由串行任务分配 custom.N\n请求 ID：{request_id}', flush=True)
     details = request(base + '/actions/workflows/' + quote(WORKFLOW) +
                       '/dispatches', token,
                       {'ref': 'refs/heads/main', 'return_run_info': True, 'inputs': {
@@ -159,18 +193,8 @@ def main():
         if time.monotonic() >= deadline:
             fail('等待超时，未取消远端发布；请查询已有任务：' + run_url)
         time.sleep(POLL_SECONDS)
-    release = request(base + '/releases/tags/' + quote(version), token, phase='核对正式 Release')
-    if (release.get('tag_name') != version or release.get('draft') is not False or
-            release.get('prerelease') is not False):
-        fail('工作流结束，但未找到匹配的正式 Release')
-    build_bytes = release_asset(release, 'build.json', parsed, token)
-    completion_bytes = release_asset(release, 'release-complete.json', parsed, token)
-    build, completion = map(json.loads, (build_bytes, completion_bytes))
-    for metadata in (build, completion):
-        if not isinstance(metadata, dict) or metadata.get('source_sha') != sha or metadata.get('version') != version:
-            fail('发布元数据的版本或 SHA 不匹配')
-    if completion.get('build_sha256') != hashlib.sha256(build_bytes).hexdigest():
-        fail('Forgejo 发布完成记录中的 build.json SHA256 不匹配')
+    version = completed_release(base, sha, parsed, token)
+    print('实际版本：' + version)
     print('Forgejo Release：' + web_base + '/' + quote(OWNER) + '/' + quote(REPO) + '/releases/tag/' + version)
     print('Forgejo 发布成功；GitHub 尚未由本命令同步；本地 systemd 服务未更新')
 

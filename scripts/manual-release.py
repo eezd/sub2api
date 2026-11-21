@@ -24,7 +24,10 @@ WEB = API.removesuffix('/api/v1') + '/' + REPO
 COMPLETE = 'release-complete.json'
 HEX = re.compile(r'[0-9a-f]{40}')
 SHA256 = re.compile(r'[0-9a-f]{64}')
-VERSION = re.compile(r'\d{8}-[0-9a-f]{8}')
+VERSION = re.compile(r'v([0-9]+\.[0-9]+\.[0-9]+)-custom\.([0-9]+)')
+# Update only after an explicitly approved integration of a new official upstream release.
+UPSTREAM_TAG = 'v2.22.0'
+UPSTREAM_COMMIT = '4ba33f8713cbf6c6406e0f2639ffcc2ef1e31c87'
 WORKFLOW = 'sub2api-manual-release.yml'
 
 
@@ -309,22 +312,24 @@ def require_ancestor(commit, ref):
             'Fixed commit is no longer reachable from the source branch')
 
 
-def version_for(commit):
-    date = dt.datetime.fromisoformat(git('show', '-s', '--format=%cI', commit))
-    return date.astimezone(dt.timezone.utc).strftime('%Y%m%d') + '-' + commit[:8]
+def version_for(versions):
+    numbers = [int(match[2]) for version in versions if (match := VERSION.fullmatch(version))
+               and 'v' + match[1] == UPSTREAM_TAG]
+    return f'{UPSTREAM_TAG}-custom.{max(numbers, default=0) + 1}'
 
 
 def verify_build():
     branch, commit, run_id = release_inputs()
     # Full-history checkout supplies the branch snapshot without release credentials.
     require_ancestor(commit, git('show-ref', '--verify', '--hash', 'refs/remotes/origin/' + branch))
+    require_ancestor(UPSTREAM_COMMIT, commit)
     worker_build_engine()
-    version = version_for(commit)
+    version = version_for([])  # Verification-only package label; no counter is queried or consumed.
     row = {'version': version, 'source_sha': commit, 'source_branch': branch,
            'built_at': utc_now(), 'previous_tag': None}
     with tempfile.TemporaryDirectory(prefix='sub2api-verify-') as scratch:
         build(Path(scratch), row, run_id)
-    print(f'Build verified: {version} ({commit}); nothing published', flush=True)
+    print(f'Build verified (verification-only label, not allocated): {version} ({commit}); nothing published', flush=True)
 
 
 def native_tags(api):
@@ -377,7 +382,7 @@ def release_history(api):
 
 def validate_metadata(row, version):
     require(row['version'] == version and HEX.fullmatch(row['source_sha']) and
-            version.endswith('-' + row['source_sha'][:8]) and row['source_branch'] and
+            VERSION.fullmatch(version) and row['source_branch'] and
             (row['previous_tag'] is None or VERSION.fullmatch(row['previous_tag'])) and
             isinstance(row['body'], str) and dt.datetime.fromisoformat(row['built_at']).tzinfo is not None,
             f'Malformed Forgejo build metadata: {version}')
@@ -472,19 +477,30 @@ def package_path(version):
 
 
 def continue_release(api, authfile, branch, commit, run_id):
-    version = version_for(commit)
     history, unfinished = release_history(api)
-    if version in history:
-        release, row, proof = history[version]
-        require(row['source_sha'] == commit, f'Version SHA collision: {version}')
+    completed = [record for record in history.values() if record[1]['source_sha'] == commit]
+    require(len(completed) <= 1, 'Multiple completed releases for the same full source SHA')
+    if completed:
+        release, row, proof = completed[0]
         verify(api, release, row, proof, complete=True)
         registry(authfile, row['image'])
-        return
+        return row['version']
+    # Keep every failed tag in the counter even if its residual artifacts are removed below.
+    version = version_for(set(history) | unfinished)
+    for old_version in sorted(unfinished):
+        annotation = api.repo('/tags/' + old_version)
+        if annotation['commit']['sha'] != commit:
+            continue
+        old_release = api.release(old_version)
+        package = api.request(package_path(old_version), missing=True)
+        if old_release is None and package is None:
+            continue  # A bare failed tag consumes its number, but has nothing to delete.
+        owner = json.loads(annotation['message'])
+        old_row = {'version': old_version, 'source_sha': commit, 'source_branch': owner['source_branch']}
+        clean_unfinished(api, old_row, run_id, old_release, package)
     row = {'version': version, 'source_sha': commit, 'source_branch': branch}
-    release = api.release(version)
-    package = api.request(package_path(version), missing=True)
-    if version in unfinished or release is not None or package is not None:
-        clean_unfinished(api, row, run_id, release, package)
+    require(api.release(version) is None and api.request(package_path(version), missing=True) is None,
+            'New version already has untracked release artifacts')
     require(inspect_registry(authfile, f'{IMAGE}:{version}') is None, 'Untracked Registry version')
     previous = baseline([record for _, record, _ in history.values()], branch, commit)
     row.update(built_at=utc_now(), previous_tag=previous['version'] if previous else None,
@@ -497,6 +513,7 @@ def continue_release(api, authfile, branch, commit, run_id):
         proof = {name: sha(directory / name) for name in originals(version)}
         verify_artifacts(directory, row, proof)
         publish(api, authfile, row, directory, proof)
+    return version
 
 
 def execute():
@@ -511,11 +528,12 @@ def execute():
     with tempfile.TemporaryDirectory() as authdir:
         api.git('fetch', '--no-tags', WEB + '.git', 'refs/heads/' + branch)
         require_ancestor(commit, 'FETCH_HEAD')
+        require_ancestor(UPSTREAM_COMMIT, commit)
         authfile = str(Path(authdir) / 'auth.json')
         subprocess.run(['skopeo', 'login', '--authfile', authfile, '--username', identity['login'], '--password-stdin',
                         'git.134333.xyz'], input=api.token, text=True, check=True)
-        continue_release(api, authfile, branch, commit, run_id)
-    print('Verified Forgejo release:', WEB + '/releases/tag/' + version_for(commit), flush=True)
+        version = continue_release(api, authfile, branch, commit, run_id)
+    print('Verified Forgejo release:', WEB + '/releases/tag/' + version, flush=True)
 
 
 if __name__ == '__main__':
