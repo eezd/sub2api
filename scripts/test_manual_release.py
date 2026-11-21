@@ -645,6 +645,7 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertEqual(entry, {'required': 'true', 'type': 'string'})
         self.assertFalse(list((ROOT / '.gitea/workflows').glob('*.yml')))
         self.assertFalse(list((ROOT / '.github/workflows').glob('*.yml')))
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
         self.assertEqual(workflow['concurrency']['cancel-in-progress'], 'false')
         job = workflow['jobs']['release']
         self.assertEqual(job['runs-on'], 'docker')
