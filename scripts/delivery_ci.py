@@ -138,13 +138,32 @@ def newest_main(records, head, ancestor):
     raise ValueError('Completed main releases diverge; latest is unchanged')
 
 
-def check_alias(raw, selected, records, ancestor):
+def delivery_history():
+    value = json.loads(Path(__file__).with_name('delivery-history.json').read_bytes())
+    if value['schema'] != 1:
+        raise ValueError('Unknown delivery history schema')
+    return value
+
+
+def check_alias(raw, selected, records, ancestor, *, endpoint=None):
     if raw is None or raw == selected['image']['digest']:
         return
     known = [row for row in records if row.get('schema') == 5 and
              row['source_branch'] == 'main' and row['image']['digest'] == raw]
-    if not known or not all(ancestor(row['source_sha'], selected['source_sha']) for row in known):
-        raise ValueError('Unknown or divergent latest alias; refusing rollback/adoption')
+    if known and all(ancestor(row['source_sha'], selected['source_sha']) for row in known):
+        return
+    # The frozen legacy digest is a one-release transition, not permanent alias authority.
+    if endpoint is not None and selected.get('schema') == 5 and selected['source_branch'] == 'main':
+        transition = delivery_history()['latest_transition']
+        cutoff = transition['after_commit']
+        first_main = [row for row in records if row.get('schema') == 5 and
+                      row['source_branch'] == 'main' and row['source_sha'] != cutoff and
+                      ancestor(cutoff, row['source_sha'])]
+        if (transition['aliases'].get(endpoint) == raw and len(first_main) == 1 and
+                first_main[0] == selected and
+                newest_main(records, selected['source_sha'], ancestor) == selected):
+            return
+    raise ValueError('Unknown or divergent latest alias; refusing rollback/adoption')
 
 
 def validate_provenance(value):

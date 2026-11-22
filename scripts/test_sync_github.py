@@ -51,6 +51,9 @@ class SyncFixture(unittest.TestCase):
         self.enterContext(patch.object(sys, 'path', sys.path[:]))
         self.module = {'__name__': 'sync_fixture'}
         exec(compile(SOURCE, 'scripts/sync-github.py', 'exec'), self.module)
+        self.history = {'schema': 1, 'repositories': {'forgejo': self.module['FORGEJO_GIT'],
+                        'github': self.module['GITHUB_GIT']}, 'archives': []}
+        self.module['delivery_history'] = lambda: self.history
 
 
 class SyncGitAuthTests(SyncFixture):
@@ -86,6 +89,12 @@ class SyncGitAuthTests(SyncFixture):
 
 class SyncCustomVersionTests(SyncFixture):
     def test_new_custom_version_validates_and_copies_six_packages_and_oci(self):
+        self.validate_custom_version(5)
+
+    def test_legacy_no_schema_completed_version_keeps_original_sync_contract(self):
+        self.validate_custom_version(None)
+
+    def validate_custom_version(self, schema):
         tag = 'v2.22.0-custom.20'
         sha = 'a' * 40
         packages = {name: ('synthetic-package-' + name).encode() for name in self.module['package_names'](tag)}
@@ -94,8 +103,13 @@ class SyncCustomVersionTests(SyncFixture):
         image = dict(ref=self.module['FORGEJO_IMAGE'] + ':' + tag, digest='sha256:' + 'c' * 64,
                      platforms={platform: 'sha256:' + value * 64
                                 for platform, value in zip(self.module['PLATFORMS'], ('d', 'e'))})
-        build = json.dumps(dict(version=tag, source_sha=sha, source_branch='main', image=image,
-                                packages=[dict(name=name, sha256=value) for name, value in hashes.items()])).encode()
+        metadata = dict(version=tag, source_sha=sha, source_branch='main', image=image,
+                        packages=[dict(name=name, sha256=value) for name, value in hashes.items()])
+        if schema == 5:
+            metadata.update(schema=5, source_branch_head=sha, control_sha='b' * 40,
+                            release_inputs={'source_branch': 'main', 'source_sha': ''},
+                            release_request_id='12345678-1234-1234-1234-123456789abc', release_run_id='1-1')
+        build = json.dumps(metadata).encode()
         contents = packages | {'SHA256SUMS': sums, 'build.json': build, 'release-complete.json': json.dumps(dict(
             version=tag, source_sha=sha, build_sha256=hashlib.sha256(build).hexdigest())).encode()}
         entry = dict(tag_name=tag, name=tag, body='synthetic release', draft=False, prerelease=False,
@@ -289,6 +303,164 @@ class SyncWebBoundaryTests(SyncFixture):
         versions[0].sync.assert_called_once_with(target)
         process.assert_not_called()  # recheck failed before either latest copy
 
+    def bootstrap_history(self, raw):
+        return {'latest_transition': {'after_commit': 'a' * 40, 'aliases': {
+            self.module['FORGEJO_IMAGE'] + ':latest': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+            'ghcr.io/eezd/sub2api:latest': 'sha256:' + hashlib.sha256(raw).hexdigest()}}}
+
+    def test_sync_entry_bootstraps_both_frozen_endpoints_then_rechecks_before_copy(self):
+        raw = b'synthetic-legacy'
+        row = self.latest_record('b' * 40, 1, b'new')
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture([row])
+        snapshot.ancestor.side_effect = lambda a, b: a == b or a == 'a' * 40 or b == 'head'
+        events = []
+        versions[0].sync.side_effect = lambda _: events.append('complete')
+        manifests = MagicMock(side_effect=lambda *a, **kw: events.append('inspect') or raw)
+        process = MagicMock(side_effect=lambda *a, **kw: events.append('copy'))
+        with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+             patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        auth_file=lambda: 'auth', read_manifest=manifests, run=process,
+                        public_image=MagicMock()), redirect_stdout(io.StringIO()):
+            self.module['sync'](self.directory, source, target)
+        self.assertEqual(manifests.call_count, 4)
+        self.assertEqual(process.call_count, 2)
+        self.assertEqual([call.args[0] for call in manifests.call_args_list],
+                         [self.module['FORGEJO_IMAGE'] + ':latest', 'ghcr.io/eezd/sub2api:latest'] * 2)
+        self.assertEqual(events, ['inspect', 'inspect', 'complete', 'inspect', 'inspect', 'copy', 'copy'])
+        self.assertIn('--multi-arch=index-only', process.call_args_list[0].args[0])
+        self.assertIn('--all', process.call_args_list[1].args[0])
+
+    def test_sync_entry_second_main_closes_bootstrap_before_target_writes(self):
+        raw = b'synthetic-legacy'
+        records = [self.latest_record('b' * 40, 1, b'first'), self.latest_record('c' * 40, 2, b'second')]
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture(records)
+        snapshot.ancestor.side_effect = lambda a, b: a == b or a == 'a' * 40 or b in ('head', 'c' * 40)
+        process = MagicMock()
+        with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+             patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        USE_LFS='true', auth_file=lambda: 'auth', read_manifest=MagicMock(return_value=raw),
+                        run=process), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Unknown'):
+                self.module['sync'](self.directory, source, target)
+        self.assert_no_sync_writes(source, target, snapshot, versions, process)
+
+    def test_sync_entry_bootstrap_checks_skipped_completions_without_syncing_them(self):
+        raw = b'synthetic-legacy'
+        for kind in ('second-main', 'fork-main', 'invalid-proof', 'dev', 'old-schema', 'schema4',
+                     'old-schema-fork', 'schema4-fork'):
+            with self.subTest(kind=kind):
+                row = self.latest_record('b' * 40, 1, b'first')
+                source, target, snapshot, versions, constructor = self.sync_entry_fixture([row])
+                skipped = self.latest_record('c' * 40, 2, b'skipped')
+                skipped.update(source_branch='dev' if kind == 'dev' else 'main',
+                               source_branch_head='c' * 40, control_sha='d' * 40,
+                               release_inputs={'source_branch': 'dev' if kind == 'dev' else 'main', 'source_sha': ''},
+                               release_request_id='12345678-1234-1234-1234-123456789abc', release_run_id='1-1')
+                if kind in ('old-schema', 'old-schema-fork'):
+                    skipped.pop('schema')
+                if kind in ('schema4', 'schema4-fork'):
+                    skipped['schema'] = 4
+                if kind in ('old-schema', 'schema4'):
+                    skipped['source_sha'] = 'a' * 40  # Older main ancestor, not another bootstrap candidate.
+                build = json.dumps(skipped).encode()
+                marker = json.dumps(dict(version=skipped['version'], source_sha=skipped['source_sha'],
+                    build_sha256='bad' if kind == 'invalid-proof' else hashlib.sha256(build).hexdigest())).encode()
+                payloads = {'build.json': build, 'release-complete.json': marker}
+                releases = list(source.pages.return_value)
+                releases.append(dict(tag_name=skipped['version'], draft=False, prerelease=False,
+                                     assets=[{'name': name} for name in payloads]))
+                source.pages.return_value = releases
+                skipped_ref = 'refs/tags/' + skipped['version']
+                snapshot.refs[skipped_ref] = skipped['source_sha']
+                snapshot.in_scope.side_effect = lambda ref: ref != skipped_ref
+                snapshot.commit.return_value = skipped['source_sha']
+                snapshot.ancestor.side_effect = lambda a, b: a == b or (
+                    a == 'a' * 40 and (b != 'c' * 40 or kind != 'fork-main')) or (
+                    a == 'b' * 40 and b == 'head')
+                def download(asset, path):
+                    data = payloads[asset['name']]
+                    path.write_bytes(data)
+                    return hashlib.sha256(data).hexdigest()
+                source.forgejo_asset.side_effect = download
+                process = MagicMock()
+                with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+                     patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                                USE_LFS='true', auth_file=lambda: 'auth', read_manifest=MagicMock(return_value=raw),
+                                public_image=MagicMock(), run=process), redirect_stdout(io.StringIO()):
+                    if kind in ('dev', 'old-schema', 'schema4'):
+                        self.module['sync'](self.directory, source, target)
+                        versions[0].sync.assert_called_once_with(target)
+                        self.assertEqual(process.call_count, 2)
+                        self.assertEqual(source.forgejo_asset.call_count, 4)  # preflight and write-time recheck
+                    else:
+                        with self.assertRaises((ValueError, RuntimeError)):
+                            self.module['sync'](self.directory, source, target)
+                        self.assert_no_sync_writes(source, target, snapshot, versions, process)
+                constructor.assert_called_once()  # skipped proof never becomes a synchronizable Version
+                self.assertEqual({call.args[0]['name'] for call in source.forgejo_asset.call_args_list}, set(payloads))
+                self.assertEqual(list(self.directory.iterdir()), [])  # temporary metadata only
+
+    def test_sync_entry_all_alias_states_check_skipped_main_forks_before_writes(self):
+        for alias in ('known-ancestor', 'selected', 'missing'):
+            for schema in (None, 4, 5):
+                with self.subTest(alias=alias, schema=schema):
+                    old_raw, selected_raw = b'known-old', b'selected'
+                    rows = [self.latest_record('a' * 40, 1, old_raw),
+                            self.latest_record('b' * 40, 2, selected_raw)]
+                    source, target, snapshot, versions, constructor = self.sync_entry_fixture(rows)
+                    skipped = self.latest_record('f' * 40, 3, b'fork')
+                    if schema is None:
+                        skipped.pop('schema')
+                    else:
+                        skipped['schema'] = schema
+                    skipped_tag = skipped['version']
+                    source.pages.return_value.append(dict(tag_name=skipped_tag, draft=False, prerelease=False,
+                                                         assets=[{'name': 'release-complete.json'}]))
+                    skipped_ref = 'refs/tags/' + skipped_tag
+                    snapshot.refs[skipped_ref] = skipped['source_sha']
+                    snapshot.in_scope.side_effect = lambda ref: ref != skipped_ref
+                    snapshot.ancestor.side_effect = lambda a, b: a == b or (
+                        a == 'a' * 40 and b in ('b' * 40, 'head')) or (a == 'b' * 40 and b == 'head')
+                    raw = {'known-ancestor': old_raw, 'selected': selected_raw, 'missing': None}[alias]
+                    process, proof = MagicMock(), MagicMock(return_value=(skipped, 'hash'))
+                    with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                                    completed_metadata=proof, USE_LFS='true', auth_file=lambda: 'auth',
+                                    read_manifest=MagicMock(return_value=raw), run=process), \
+                         redirect_stdout(io.StringIO()):
+                        with self.assertRaisesRegex(ValueError, 'diverge'):
+                            self.module['sync'](self.directory, source, target)
+                    proof.assert_called_once()
+                    self.assertEqual(constructor.call_count, 2)  # Never construct a syncable skipped version.
+                    self.assert_no_sync_writes(source, target, snapshot, versions, process)
+
+    def test_sync_entry_rechecks_skipped_main_proofs_before_latest_writes(self):
+        raw = b'selected'
+        row = self.latest_record('b' * 40, 1, raw)
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture([row])
+        skipped = self.latest_record('f' * 40, 2, b'fork')
+        calls = MagicMock(side_effect=[[], [skipped]])
+        snapshot.ancestor.side_effect = lambda a, b: a == b or (a == 'b' * 40 and b == 'head')
+        process = MagicMock()
+        with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        skipped_completion_records=calls, auth_file=lambda: 'auth',
+                        read_manifest=MagicMock(return_value=raw), run=process), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'diverge'):
+                self.module['sync'](self.directory, source, target)
+        self.assertEqual(calls.call_count, 2)
+        versions[0].sync.assert_called_once_with(target)
+        process.assert_not_called()
+
+    def test_sync_entry_dev_never_reads_or_updates_latest(self):
+        row = dict(self.latest_record('b' * 40, 1, b'dev'), source_branch='dev')
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture([row])
+        manifests, process = MagicMock(), MagicMock()
+        with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        read_manifest=manifests, run=process), redirect_stdout(io.StringIO()):
+            self.module['sync'](self.directory, source, target)
+        versions[0].sync.assert_called_once_with(target)
+        manifests.assert_not_called()
+        process.assert_not_called()
+
     def test_valid_version_syncs_but_legacy_gap_still_nonzero_and_no_latest(self):
         source, target, snapshot = MagicMock(), MagicMock(), MagicMock()
         target.json.side_effect = [dict(full_name='eezd/sub2api', private=False, archived=False,
@@ -310,6 +482,164 @@ class SyncWebBoundaryTests(SyncFixture):
                 self.module['sync'](self.directory, source, target)
         version.sync.assert_called_once_with(target)
         latest.assert_not_called()
+
+
+class SyncArchiveTests(SyncFixture):
+    def setUp(self):
+        super().setUp()
+        self.tag = 'v2.12.0-custom.1'
+        self.ref = 'refs/tags/' + self.tag
+        self.contents = {f'legacy-{n}': f'archive bytes {n}'.encode() for n in range(8)}
+        self.archive = dict(tag=self.tag, tag_object='a' * 40, commit='b' * 40, name='Frozen release',
+                            body_sha256=hashlib.sha256(b'frozen body').hexdigest(), forgejo_id=1, github_id=2,
+                            assets=[dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest(),
+                                    forgejo_id=n + 10, forgejo_uuid=f'frozen-uuid-{n}', github_id=n + 20)
+                                    for n, (name, data) in enumerate(self.contents.items())])
+        self.history['archives'] = [self.archive]
+        self.source, self.target, self.snapshot = MagicMock(), MagicMock(), MagicMock()
+        self.source.json.return_value = {'permissions': {'push': True}}
+        self.target.json.side_effect = lambda path, phase, **kw: (
+            {'full_name': 'eezd/sub2api', 'private': False, 'archived': False, 'permissions': {'push': True}}
+            if path == '' else {'enabled': False})
+        self.source_release = dict(tag_name=self.tag, id=1, name='Frozen release', body='frozen body',
+                                   draft=False, prerelease=False, assets=[])
+        self.target_release = dict(self.source_release, id=2)
+        self.source_assets = [dict(name=a['name'], size=a['size'], id=a['forgejo_id'], uuid=a['forgejo_uuid'])
+                              for a in self.archive['assets']]
+        self.target_assets = [dict(name=a['name'], size=a['size'], id=a['github_id'], state='uploaded',
+                              digest='sha256:' + a['sha256']) for a in self.archive['assets']]
+        self.source_release['assets'] = self.source_assets
+        self.target_release['assets'] = self.target_assets
+        self.source_releases, self.target_releases = [self.source_release], [self.target_release]
+        self.source.json.side_effect = lambda path, *a, **kw: (
+            {'permissions': {'push': True}} if path == '' else self.source_assets)
+        self.source.pages.side_effect = lambda path, *a, **kw: self.source_releases if path == '/releases' else (_ for _ in ()).throw(
+            AssertionError('Forgejo attachments are not paginated'))
+        self.target.pages.side_effect = lambda path, *a, **kw: self.target_releases if path == '/releases' else self.target_assets
+        self.snapshot.heads = {'refs/heads/main': 'head'}
+        self.snapshot.refs = self.snapshot.heads | {self.ref: self.archive['tag_object']}
+        self.dest_refs = dict(self.snapshot.refs)
+        self.snapshot.target.side_effect = lambda: self.dest_refs
+        self.snapshot.commit.return_value = self.archive['commit']
+        self.snapshot.in_scope.return_value = True
+        self.snapshot.changes.return_value = []
+        self.version, self.process = MagicMock(), MagicMock()
+        self.enterContext(patch.dict(self.module, Snapshot=MagicMock(return_value=self.snapshot),
+                                    Version=self.version, run=self.process))
+        # Exercise the production streaming hash loop, with no retained archive file.
+        @contextmanager
+        def opened(url, *args, **kwargs):
+            yield io.BytesIO(self.contents[url])
+        self.source.open.side_effect = opened
+        self.source.forgejo_asset.side_effect = lambda asset, path: self.module['API'].download(
+            self.source, asset['name'], path, 'synthetic stream')
+
+    def run_sync(self):
+        with redirect_stdout(io.StringIO()) as output:
+            self.module['sync'](self.directory, self.source, self.target)
+        return output.getvalue()
+
+    def assert_no_target_writes(self):
+        self.snapshot.lfs.assert_not_called()
+        self.snapshot.git.assert_not_called()
+        self.target.upload.assert_not_called()
+        self.process.assert_not_called()
+        self.version.assert_not_called()
+        for call in self.target.json.call_args_list:
+            self.assertNotIn('method', call.kwargs)
+
+    def test_archive_passes_read_only_without_version_or_old_release_writes(self):
+        output = self.run_sync()
+        self.assertIn('1 个版本 / 8 个附件', output)
+        self.assertIn('不作为新完成证明', output)
+        self.assertIn('已验收 0 个正式版本', output)
+        self.assertEqual(self.source.forgejo_asset.call_count, 8)
+        self.assertTrue(all(call.args[1] is None for call in self.source.forgejo_asset.call_args_list))
+        self.target.github_asset.assert_not_called()  # GitHub API digest is the frozen authority.
+        self.assertEqual(list(self.directory.iterdir()), [])
+        self.assert_no_target_writes()
+
+    def test_forgejo_unpaginated_assets_are_requested_once(self):
+        self.source.root = 'https://forgejo.invalid/api/repos/project'
+        @contextmanager
+        def opened(url, *args, **kwargs):
+            if url.startswith(self.source.root + '/releases/1/assets'):
+                # Real Forgejo 17 ignores page/limit and repeats this list on every page.
+                data = json.dumps(self.source_assets).encode()
+            elif url == self.source.root:
+                data = json.dumps({'permissions': {'push': True}}).encode()
+            else:
+                data = self.contents[url]
+            response = io.BytesIO(data)
+            response.headers = {}
+            yield response
+        self.source.open.side_effect = opened
+        self.source.json.side_effect = lambda path, phase, **kw: self.module['API'].json(self.source, path, phase, **kw)
+        self.source.pages.side_effect = lambda path, phase, **kw: (
+            self.source_releases if path == '/releases' else self.module['API'].pages(self.source, path, phase, **kw))
+        self.run_sync()
+        urls = [call.args[0] for call in self.source.open.call_args_list if '/assets' in call.args[0]]
+        self.assertEqual(urls, [self.source.root + '/releases/1/assets'])
+        self.target.pages.assert_any_call('/releases/2/assets', '核对历史附件', size_key='per_page')
+        self.assert_no_target_writes()
+
+    def test_any_archive_metadata_tag_set_or_bytes_mutation_stops_before_all_writes(self):
+        import copy
+        # A fresh fixture per mutation keeps failures independent.
+        mutations = [
+            lambda f: f.source_releases.clear(), lambda f: f.target_releases.clear(),
+            lambda f: f.source_release.update(draft=True), lambda f: f.target_release.update(prerelease=True),
+            lambda f: f.source_release.update(name='changed'), lambda f: f.target_release.update(body='changed'),
+            lambda f: f.source_release.update(id=99), lambda f: f.target_release.update(id=99),
+            lambda f: f.snapshot.refs.update({f.ref: 'c' * 40}),
+            lambda f: f.dest_refs.update({f.ref: 'c' * 40}), lambda f: f.dest_refs.pop(f.ref),
+            lambda f: setattr(f.snapshot.commit, 'return_value', 'c' * 40),
+            lambda f: f.source_assets[0].update(size=99), lambda f: f.target_assets[0].update(size=99),
+            lambda f: f.source_assets[0].update(uuid='changed'), lambda f: f.target_assets[0].update(id=99),
+            lambda f: f.source_assets[0].update(id=99), lambda f: f.source_assets[0].update(name='changed'),
+            lambda f: f.target_assets[0].update(digest='sha256:' + '0' * 64),
+            lambda f: f.target_assets[0].pop('digest'), lambda f: f.source_assets.pop(),
+            lambda f: f.target_assets.append(copy.deepcopy(f.target_assets[0])),
+            lambda f: f.source_assets.append({'name': 'release-complete.json'}),
+            lambda f: f.target_assets.append({'name': 'release-complete.json'}),
+            lambda f: f.contents.update({'legacy-0': b'altered source bytes'}),
+        ]
+        for number, mutate in enumerate(mutations):
+            with self.subTest(mutation=number):
+                fixture = SyncArchiveTests('test_archive_passes_read_only_without_version_or_old_release_writes')
+                try:
+                    fixture.setUp()
+                    mutate(fixture)
+                    fixture.module['USE_LFS'] = 'true'
+                    fixture.snapshot.changes.return_value = ['would-write']
+                    with self.assertRaises((RuntimeError, KeyError)):
+                        fixture.run_sync()
+                    fixture.assert_no_target_writes()
+                finally:
+                    fixture.doCleanups()
+
+    def test_archive_success_does_not_hide_unknown_gap(self):
+        self.source_releases.append(dict(tag_name='v2.99.0-custom.1', draft=False, prerelease=False, assets=[]))
+        with self.assertRaisesRegex(RuntimeError, '仍有 1 个正式版本未同步'):
+            self.run_sync()
+        self.version.assert_not_called()
+        self.target.upload.assert_not_called()
+
+    def test_archive_success_allows_new_version_sync_without_touching_archive(self):
+        tag = 'v2.23.1-custom.1'
+        self.source_releases.append(dict(tag_name=tag, draft=False, prerelease=False,
+                                        assets=[{'name': 'release-complete.json'}]))
+        self.snapshot.refs['refs/tags/' + tag] = 'c' * 40
+        self.dest_refs['refs/tags/' + tag] = 'c' * 40
+        version = MagicMock(tag=tag, metadata=dict(source_branch='dev', schema=5))
+        self.version.return_value = version
+        output = self.run_sync()
+        self.version.assert_called_once()
+        self.assertEqual(self.version.call_args.args[0], tag)
+        version.sync.assert_called_once_with(self.target)
+        self.assertIn('已验收 1 个正式版本', output)
+        self.target.upload.assert_not_called()
+        self.assertTrue(all('method' not in call.kwargs for call in self.target.json.call_args_list))
 
 
 if __name__ == '__main__':

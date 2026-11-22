@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 
 from gitea_http import request as forgejo_request
-from delivery_ci import credentials, cleanup_auth, child_env, login, anonymous, newest_main, check_alias
+from delivery_ci import credentials, cleanup_auth, child_env, login, anonymous, newest_main, check_alias, delivery_history
 
 FORGEJO_API = 'https://git.134333.xyz/api/v1'
 FORGEJO_OWNER = 'eezd'
@@ -344,6 +344,81 @@ def public_image(ref, image, authfile, *, arch_tags=False):
         raise
 
 
+def verify_archives(source, target, snapshot, dest_refs, releases, target_releases):
+    history = delivery_history()
+    require(history['repositories'] == {'forgejo': FORGEJO_GIT, 'github': GITHUB_GIT},
+            'Historical archive repository mismatch')
+    archives = index(history['archives'], 'tag', 'Historical archive')
+    assets_checked = 0
+    bytes_checked = 0
+    for tag, archive in archives.items():
+        ref = 'refs/tags/' + tag
+        require(snapshot.refs.get(ref) == dest_refs.get(ref) == archive['tag_object'] and
+                snapshot.commit(ref) == archive['commit'], 'Historical archive TAG conflict: ' + tag)
+        expected = index(archive['assets'], 'name', 'Historical archive attachments')
+        for service, api, entries, size_key in (
+                ('forgejo', source, releases, 'limit'), ('github', target, target_releases, 'per_page')):
+            release = entries.get(tag)
+            require(release is not None and is_formal(release) and
+                    release['id'] == archive[service + '_id'] and release['name'] == archive['name'] and
+                    hashlib.sha256(release['body'].encode()).hexdigest() == archive['body_sha256'],
+                    f'Historical archive {service} Release conflict: {tag}')
+            path = f'/releases/{release["id"]}/assets'
+            # Forgejo 17 returns the full list and ignores pagination on this endpoint.
+            entries = (api.json(path, '核对历史附件') if service == 'forgejo' else
+                       api.pages(path, '核对历史附件', size_key=size_key))
+            assets = index(entries, 'name', 'Historical archive attachments')
+            require(assets.keys() == expected.keys(), f'Historical archive {service} attachment set conflict: {tag}')
+            for name, frozen in expected.items():
+                asset = assets[name]
+                require(asset['id'] == frozen[service + '_id'] and asset['size'] == frozen['size'],
+                        f'Historical archive {service} attachment identity conflict: {tag}/{name}')
+                if service == 'forgejo':
+                    require(asset['uuid'] == frozen['forgejo_uuid'] and
+                            api.forgejo_asset(asset, None) == frozen['sha256'],
+                            f'Historical archive Forgejo attachment digest conflict: {tag}/{name}')
+                else:
+                    require(asset.get('state') == 'uploaded' and asset.get('digest') == 'sha256:' + frozen['sha256'],
+                            f'Historical archive GitHub attachment digest conflict: {tag}/{name}')
+        assets_checked += len(expected)
+        bytes_checked += sum(asset['size'] for asset in expected.values())
+    print(f'历史只读档案已核对：{len(archives)} 个版本 / {assets_checked} 个附件 / {bytes_checked} 字节；不作为新完成证明', flush=True)
+    return archives
+
+
+def completed_metadata(tag, assets, path, source, snapshot):
+    require({BUILD, COMPLETE} <= assets.keys(), '正式版本缺少发布元数据或验收证明')
+    build_hash = source.forgejo_asset(assets[BUILD], path / BUILD)
+    source.forgejo_asset(assets[COMPLETE], path / COMPLETE)
+    build = json.loads((path / BUILD).read_bytes())
+    completion = json.loads((path / COMPLETE).read_bytes())
+    require(build.get('schema') in (None, 4, 5), 'Unknown completed build schema')
+    if build.get('schema') == 5:
+        from delivery_ci import validate_provenance
+        validate_provenance(build)
+    sha = build['source_sha']
+    require(SHA.fullmatch(sha) and VERSION.fullmatch(tag) and
+            snapshot.commit('refs/tags/' + tag) == sha and
+            build['version'] == completion['version'] == tag and completion['source_sha'] == sha and
+            completion == {'version': tag, 'source_sha': sha, 'build_sha256': build_hash},
+            '验收记录、TAG、SHA 或 build.json 哈希不一致')
+    require(isinstance(build['source_branch'], str) and build['source_branch'], '缺少发布来源分支')
+    return build, build_hash
+
+
+def skipped_completion_records(skipped, directory, source, snapshot):
+    # Read minimal proofs for fork detection, never prepare these versions for sync.
+    records = []
+    with tempfile.TemporaryDirectory(prefix='latest-proof-', dir=directory) as temporary:
+        for tag, release in skipped:
+            assets = index(release['assets'], 'name', 'Forgejo 附件')
+            if COMPLETE in assets:
+                build, _ = completed_metadata(tag, assets, Path(temporary), source, snapshot)
+                if build['source_branch'] == 'main':
+                    records.append(build)
+    return records
+
+
 class Version:
     def __init__(self, tag, release, directory, source, target, snapshot, target_release):
         self.tag = tag
@@ -356,21 +431,9 @@ class Version:
         require(isinstance(self.title, str) and isinstance(self.body, str), 'Forgejo Release 标题或正文无效')
         assets = index(release['assets'], 'name', 'Forgejo 附件')
         require({BUILD, COMPLETE, SUMS} <= assets.keys(), '正式版本缺少发布元数据或验收证明')
-        build_hash = source.forgejo_asset(assets[BUILD], self.path / BUILD)
-        source.forgejo_asset(assets[COMPLETE], self.path / COMPLETE)
-        build = json.loads((self.path / BUILD).read_bytes())
-        completion = json.loads((self.path / COMPLETE).read_bytes())
-        require(build.get('schema') in (None, 4, 5), 'Unknown completed build schema')
-        if build.get('schema') == 5:
-            from delivery_ci import validate_provenance
-            validate_provenance(build)
+        build, build_hash = completed_metadata(tag, assets, self.path, source, snapshot)
         self.metadata = build
         self.sha = build['source_sha']
-        require(SHA.fullmatch(self.sha) and VERSION.fullmatch(tag) and
-                snapshot.commit('refs/tags/' + tag) == self.sha and
-                build['version'] == completion['version'] == tag and completion['source_sha'] == self.sha and
-                completion == {'version': tag, 'source_sha': self.sha, 'build_sha256': build_hash}, '验收记录、TAG、SHA 或 build.json 哈希不一致')
-        require(isinstance(build['source_branch'], str) and build['source_branch'], '缺少发布来源分支')
         hashes = index(build['packages'], 'name', 'build.json 包清单')
         require(hashes.keys() == package_names(tag) and assets.keys() == hashes.keys() | {BUILD, SUMS, COMPLETE}, '六平台附件清单不匹配')
         self.hashes = {name: package['sha256'] for name, package in hashes.items()}
@@ -441,23 +504,27 @@ class Version:
         print(f'{self.tag}：GitHub Release 与镜像已验收', flush=True)
 
 
-def latest_preflight(versions, snapshot):
+def latest_preflight(versions, snapshot, completion_records=None):
     records = [version.metadata for version in versions]
     chosen = newest_main(records, snapshot.heads['refs/heads/main'], snapshot.ancestor)
     if chosen is None or chosen.get('schema') != 5:
         return
+    if completion_records is not None:
+        records += completion_records()
+        # Old schemas count for forks; only schema5 counts for the bootstrap window.
+        newest_main(records, chosen['source_sha'], snapshot.ancestor)
     auth = auth_file()
     destinations = (FORGEJO_IMAGE + ':latest', f'ghcr.io/{GITHUB_OWNER}/{GITHUB_REPO}:latest')
     # Inspect *both* aliases before the first write: never partially adopt an unknown alias.
     current = [read_manifest(ref, auth, allow_missing=True) for ref in destinations]
-    for raw in current:
-        check_alias('sha256:' + hashlib.sha256(raw).hexdigest() if raw is not None else None,
-                    chosen, records, snapshot.ancestor)
+    for ref, raw in zip(destinations, current):
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest() if raw is not None else None
+        check_alias(digest, chosen, records, snapshot.ancestor, endpoint=ref)
     return chosen, tuple(zip(destinations, current))
 
 
-def sync_latest(versions, snapshot):
-    checked = latest_preflight(versions, snapshot)
+def sync_latest(versions, snapshot, completion_records=None):
+    checked = latest_preflight(versions, snapshot, completion_records)
     if checked is None:
         return
     chosen, destinations = checked
@@ -486,16 +553,21 @@ def sync(directory, source, target, project=None):
     releases = index(source.pages('/releases', '读取 Forgejo Release', size_key='limit'), 'tag_name', 'Forgejo Release')
     target_releases = index(target.pages('/releases', '读取 GitHub Release', size_key='per_page'),
                             'tag_name', 'GitHub Release')
+    archives = verify_archives(source, target, snapshot, dest_refs, releases, target_releases)
     refs = dict(snapshot.heads)
     versions = []
     gaps = []
+    skipped = []
     for tag in sorted(releases):
+        if tag in archives:
+            continue  # Frozen imports are verified read-only, never repaired or promoted to Version.
         release = releases[tag]
         ref = 'refs/tags/' + tag
         if not is_formal(release):
             print(f'跳过草稿或预发布 TAG：{tag!r}', flush=True)
             continue
         if ref in snapshot.refs and not snapshot.in_scope(ref):
+            skipped.append((tag, release))
             print(f'跳过未获准公开的 Release：{tag!r}', flush=True)
             continue
         asset_names = index(release['assets'], 'name', 'Forgejo 附件')
@@ -518,7 +590,8 @@ def sync(directory, source, target, project=None):
         elif tag not in releases:
             print(f'跳过尚无验收 Release 的版本 TAG：{tag!r}', flush=True)
     changes = snapshot.changes(refs, dest_refs)
-    latest_preflight(versions, snapshot)
+    completion_records = lambda: skipped_completion_records(skipped, directory, source, snapshot)
+    latest_preflight(versions, snapshot, completion_records)
     if USE_LFS == 'true':
         snapshot.lfs(sorted(refs))
     if changes:
@@ -532,7 +605,7 @@ def sync(directory, source, target, project=None):
         print(f'{version.tag}：开始同步正式产物', flush=True)
         version.sync(target)
     require(not gaps, f'仍有 {len(gaps)} 个正式版本未同步；需核实并补录原始发布证据')
-    sync_latest(versions, snapshot)
+    sync_latest(versions, snapshot, completion_records)
     print(f'GitHub 手动同步完成，已验收 {len(versions)} 个正式版本', flush=True)
 
 

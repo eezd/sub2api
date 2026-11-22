@@ -292,7 +292,7 @@ def latest(api, authfile):
     public_registry(authfile, chosen['image'], arch_tags=True)
     ref = IMAGE + ':latest'
     raw = inspect_registry(authfile, ref)
-    check_alias('sha256:' + digest(raw) if raw is not None else None, chosen, records, ancestor)
+    check_alias('sha256:' + digest(raw) if raw is not None else None, chosen, records, ancestor, endpoint=ref)
     if raw is None or 'sha256:' + digest(raw) != chosen['image']['digest']:
         subprocess.run(['skopeo', 'copy', '--multi-arch=index-only', '--preserve-digests', '--authfile', authfile,
                         'docker://' + IMAGE + '@' + chosen['image']['digest'], 'docker://' + ref],

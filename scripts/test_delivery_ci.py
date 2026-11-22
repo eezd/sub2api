@@ -208,5 +208,79 @@ class LatestBoundaryTests(unittest.TestCase):
         public.assert_not_called()
 
 
+class LegacyAliasBootstrapTests(unittest.TestCase):
+    def setUp(self):
+        self.cutoff = 'a' * 40
+        self.first = self.record('b' * 40, 1)
+        self.second = self.record('c' * 40, 2)
+        self.aliases = {'git.134333.xyz/eezd/sub2api:latest': 'sha256:legacy',
+                        'ghcr.io/eezd/sub2api:latest': 'sha256:legacy'}
+        self.enterContext(patch.object(ci, 'delivery_history', return_value={'latest_transition': {
+            'after_commit': self.cutoff, 'aliases': self.aliases}}))
+        self.ancestor = lambda a, b: a == b or (a, b) in (
+            (self.cutoff, self.first['source_sha']), (self.cutoff, self.second['source_sha']),
+            (self.first['source_sha'], self.second['source_sha']))
+
+    def record(self, sha, number):
+        return dict(version='v2.23.1-custom.' + str(number), source_sha=sha, source_branch='main',
+                    schema=5, image={'digest': 'new-' + str(number)})
+
+    def test_only_explicit_frozen_endpoints_allow_first_verified_main(self):
+        for endpoint, raw in self.aliases.items():
+            ci.check_alias(raw, self.first, [self.first], self.ancestor, endpoint=endpoint)
+        for endpoint in (None, 'ghcr.io/eezd/other:latest', 'git.134333.xyz/other/sub2api:latest',
+                         'docker://ghcr.io/eezd/sub2api:latest', 'ghcr.io/eezd/sub2api:wrong'):
+            with self.subTest(endpoint=endpoint), self.assertRaisesRegex(ValueError, 'Unknown'):
+                ci.check_alias('sha256:legacy', self.first, [self.first], self.ancestor, endpoint=endpoint)
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            ci.check_alias('sha256:unknown', self.first, [self.first], self.ancestor, endpoint=next(iter(self.aliases)))
+
+    def test_cutoff_ancestor_dev_and_old_schema_cannot_bootstrap(self):
+        for row in (dict(self.first, source_sha=self.cutoff), dict(self.first, source_sha='0' * 40),
+                    dict(self.first, source_branch='dev'), dict(self.first, schema=4),
+                    {k: v for k, v in self.first.items() if k != 'schema'}):
+            with self.subTest(row=row), self.assertRaisesRegex(ValueError, 'Unknown'):
+                ci.check_alias('sha256:legacy', row, [row], self.ancestor, endpoint=next(iter(self.aliases)))
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            ci.check_alias('sha256:legacy', self.first, [], self.ancestor, endpoint=next(iter(self.aliases)))
+
+    def test_second_completed_main_closes_window_even_on_same_source(self):
+        for second in (self.second, dict(self.second, source_sha=self.first['source_sha'])):
+            for selected in (self.first, second):
+                with self.subTest(second=second, selected=selected), self.assertRaisesRegex(ValueError, 'Unknown'):
+                    ci.check_alias('sha256:legacy', selected, [self.first, second], self.ancestor,
+                                   endpoint=next(iter(self.aliases)))
+        # Closing the bootstrap window does not disable normal forward alias maintenance.
+        ci.check_alias(self.first['image']['digest'], self.second, [self.first, self.second], self.ancestor,
+                       endpoint=next(iter(self.aliases)))
+        ci.check_alias(self.second['image']['digest'], self.second, [self.first, self.second], self.ancestor)
+
+    def test_fork_or_newer_unselected_main_cannot_bootstrap(self):
+        for row in (self.second, dict(self.second, source_sha='f' * 40)):
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                ci.check_alias('sha256:legacy', self.first, [self.first, row], self.ancestor,
+                               endpoint=next(iter(self.aliases)))
+
+    def test_release_latest_verifies_before_bootstrap_and_uses_exact_endpoint(self):
+        import hashlib
+        raw = b'synthetic-legacy-index'
+        endpoint = 'git.134333.xyz/eezd/sub2api:latest'
+        self.aliases[endpoint] = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        row = dict(self.first, image={'ref': release.IMAGE + ':' + self.first['version'], 'digest': 'new'})
+        events = []
+        api = MagicMock()
+        with patch.object(release, 'release_history', return_value=({row['version']: (api, row, {})}, set())), \
+             patch.object(release, 'git', return_value=row['source_sha']), \
+             patch.object(release, 'verify', side_effect=lambda *a, **kw: events.append('proof')), \
+             patch.object(release, 'public_registry', side_effect=lambda *a, **kw: events.append('public')), \
+             patch.object(release, 'inspect_registry', return_value=raw), \
+             patch.object(release.subprocess, 'run', side_effect=lambda args, **kw:
+                          events.append('copy' if args[0] == 'skopeo' else 'ancestor') or MagicMock(returncode=0)):
+            release.latest(api, 'auth')
+        self.assertIn('copy', events)
+        self.assertLess(events.index('proof'), events.index('copy'))
+        self.assertLess(events.index('public'), events.index('copy'))
+
+
 if __name__ == '__main__':
     unittest.main()

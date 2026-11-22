@@ -130,6 +130,7 @@ scripts
 !/scripts/package-release.sh
 !/scripts/manual-release.py
 !/scripts/delivery_ci.py
+!/scripts/delivery-history.json
 !/scripts/resolve-release.py
 !/scripts/sync-github.py
 !/scripts/test_delivery_ci.py

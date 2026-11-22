@@ -1,0 +1,1216 @@
+{
+  "schema": 1,
+  "repositories": {
+    "forgejo": "https://git.134333.xyz/eezd/sub2api.git",
+    "github": "https://github.com/eezd/sub2api.git"
+  },
+  "latest_transition": {
+    "after_commit": "6d0b8849328a5be3acf187649fa87bb96709e846",
+    "aliases": {
+      "git.134333.xyz/eezd/sub2api:latest": "sha256:754be0e7b4ddc86092d55b10cb4cc0fb35aa8b3f6de32da34a191f2886099857",
+      "ghcr.io/eezd/sub2api:latest": "sha256:754be0e7b4ddc86092d55b10cb4cc0fb35aa8b3f6de32da34a191f2886099857"
+    }
+  },
+  "archives": [
+    {
+      "tag": "v2.12.0-custom.1",
+      "tag_object": "1fa9171e42c0152c1115b45cf3e5ee8f65b12b2c",
+      "commit": "2642c5b539f0aac392a1a5a3dd0b0eee47c66229",
+      "name": "Sub2API 2.12.0-custom.1",
+      "body_sha256": "4a5857fc78a134157d003341486b143d902fea91266c2bf616d2c54da54a8fd7",
+      "forgejo_id": 5,
+      "github_id": 415659625,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "90c509434cf2ae12774bf1403480ac3488028066b160beed4b5f68b3a068a469",
+          "forgejo_id": 31,
+          "forgejo_uuid": "0e47521e-2f96-421c-b819-1023da3d62c4",
+          "github_id": 649887381
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.1_linux_amd64.tar.gz",
+          "size": 80026692,
+          "sha256": "2abc5e1d3d58e834540a43eab81eb3e6070d87f2d4ea11d0cb49c51922b85f1b",
+          "forgejo_id": 32,
+          "forgejo_uuid": "3f263160-1c39-427c-8e3f-26c516bbecab",
+          "github_id": 649887718
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.1_linux_arm64.tar.gz",
+          "size": 78661931,
+          "sha256": "3a33a7b262ea1ab1d66994d4fb9661c1fecb2107213df9bda7d4f418a0c76695",
+          "forgejo_id": 33,
+          "forgejo_uuid": "e7d6ff47-8cb3-4d25-bde9-fa3349f3c51b",
+          "github_id": 649887719
+        },
+        {
+          "name": "sub2api_2.12.0-custom.1_darwin_amd64.tar.gz",
+          "size": 45446063,
+          "sha256": "44c224933c6f3b249a2d6b4ed78d288781b3aa87184a28764b15e7b494f3cb69",
+          "forgejo_id": 34,
+          "forgejo_uuid": "52d34823-27ef-4f8a-8784-cdcfc7a186fb",
+          "github_id": 649887450
+        },
+        {
+          "name": "sub2api_2.12.0-custom.1_darwin_arm64.tar.gz",
+          "size": 42492616,
+          "sha256": "b1aa84909d53ab66e6272f5b1d437fcd9b224c9a93538c8784954d09869707a7",
+          "forgejo_id": 35,
+          "forgejo_uuid": "1d3306f3-69a4-467a-a10c-4a9f4ca03e42",
+          "github_id": 649887383
+        },
+        {
+          "name": "sub2api_2.12.0-custom.1_linux_amd64.tar.gz",
+          "size": 44188392,
+          "sha256": "b17232b2248f155437e0c1dfe1d9d32677814e197e9ebee6a6d0b6860c3351b8",
+          "forgejo_id": 36,
+          "forgejo_uuid": "d1a21b5f-3fdb-432a-a2cc-8f739c793223",
+          "github_id": 649887380
+        },
+        {
+          "name": "sub2api_2.12.0-custom.1_linux_arm64.tar.gz",
+          "size": 40180246,
+          "sha256": "5aff621d31e562018bd52f546f012c262ed3780c9a8aba722d46e704583bf514",
+          "forgejo_id": 37,
+          "forgejo_uuid": "b7294622-3552-4366-a7e3-c4d1541025a5",
+          "github_id": 649887385
+        },
+        {
+          "name": "sub2api_2.12.0-custom.1_windows_amd64.zip",
+          "size": 44956935,
+          "sha256": "38f139c185d00bd8ca9d75c3ea9d401dbe94aa07bb65278c44b0818beaad02b5",
+          "forgejo_id": 38,
+          "forgejo_uuid": "62ba51b3-d69b-4097-a9bd-c8cdb7c4e654",
+          "github_id": 649887407
+        }
+      ]
+    },
+    {
+      "tag": "v2.12.0-custom.2",
+      "tag_object": "a9d8827f45d9240776de72475640fbc5e26f7728",
+      "commit": "4de22d2ac274e857f1faa91e03a48e3dcafef8fb",
+      "name": "Sub2API 2.12.0-custom.2",
+      "body_sha256": "70c267207fc72ac23cec0133bd5fa3f5671dc8676bea202be1fddbae3f4a1c93",
+      "forgejo_id": 6,
+      "github_id": 415673963,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "85135e426455e8b8a72225293e0ed3b5d34e4f71a9124a51e207a41b69472d72",
+          "forgejo_id": 39,
+          "forgejo_uuid": "d517922c-094b-4e79-bdf9-49267c5011e0",
+          "github_id": 649953041
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.2_linux_amd64.tar.gz",
+          "size": 80022904,
+          "sha256": "579d3b50fa7c3902b2cec835c6ed6f47634d27c21ff57c817285df5dde2f7cf6",
+          "forgejo_id": 40,
+          "forgejo_uuid": "647668eb-5397-424f-8b11-d5f99908acd3",
+          "github_id": 649953318
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.2_linux_arm64.tar.gz",
+          "size": 78658476,
+          "sha256": "8661903e15b77a306546349904842f023b3ca087c69346f46412bc4666bef6ab",
+          "forgejo_id": 41,
+          "forgejo_uuid": "5b19272e-e2ff-4683-a6f8-2ad0e5846137",
+          "github_id": 649953316
+        },
+        {
+          "name": "sub2api_2.12.0-custom.2_darwin_amd64.tar.gz",
+          "size": 45446171,
+          "sha256": "27cc1184c19d15c7d27e151d49a6a5ba71cac30beef64228bb0eafb95edb0f46",
+          "forgejo_id": 42,
+          "forgejo_uuid": "0ef13ca8-1c13-41e4-9338-4514ba94e3e9",
+          "github_id": 649953037
+        },
+        {
+          "name": "sub2api_2.12.0-custom.2_darwin_arm64.tar.gz",
+          "size": 42492858,
+          "sha256": "57061c4a96a46ee683c5067536f244b31c77ea740c4132ef64d59ac94b2eb455",
+          "forgejo_id": 43,
+          "forgejo_uuid": "5831fb8f-8305-4c11-9432-afe37a684001",
+          "github_id": 649953042
+        },
+        {
+          "name": "sub2api_2.12.0-custom.2_linux_amd64.tar.gz",
+          "size": 44188590,
+          "sha256": "d3656549c8a3c586cfbb9c015ed3dba4856c4d45589c829a43948231d0e39809",
+          "forgejo_id": 44,
+          "forgejo_uuid": "e95bfbc0-8f13-47cd-8bab-96a2b74e149d",
+          "github_id": 649953036
+        },
+        {
+          "name": "sub2api_2.12.0-custom.2_linux_arm64.tar.gz",
+          "size": 40180504,
+          "sha256": "b9d75250da5157705497f24de3a59dd3459c5fa23bca9efccc463d39ebe071d8",
+          "forgejo_id": 45,
+          "forgejo_uuid": "08ac8a45-95f2-4bd4-a6c4-3d95825030e5",
+          "github_id": 649953059
+        },
+        {
+          "name": "sub2api_2.12.0-custom.2_windows_amd64.zip",
+          "size": 44957108,
+          "sha256": "e07234466c19500d8cc75cbe78b0cb4b6c128ee9b766ba6710c8b7a3a16552eb",
+          "forgejo_id": 46,
+          "forgejo_uuid": "ae56601f-8e91-4716-81fe-ce9b81425150",
+          "github_id": 649953113
+        }
+      ]
+    },
+    {
+      "tag": "v2.12.0-custom.3",
+      "tag_object": "0489a5bf6274df8de92518629e4cc36cf122515a",
+      "commit": "0489a5bf6274df8de92518629e4cc36cf122515a",
+      "name": "Sub2API 2.12.0-custom.3",
+      "body_sha256": "9eb7b3f82551bfb886211d1647e9bd57dfda353fccfef7cdff2aaab9e93d7c8e",
+      "forgejo_id": 7,
+      "github_id": 416223491,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "64b2b6745697d780628d67afda071627b5993a9bcb2fb78b4b5e9da581ddec3c",
+          "forgejo_id": 47,
+          "forgejo_uuid": "5c0fb553-fad2-4afd-87b3-b491b5726038",
+          "github_id": 652424917
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.3_linux_amd64.tar.gz",
+          "size": 80026847,
+          "sha256": "1a100ead7e8dfad3215a39563b05f058a03c1149b002ab862e84a02ad9ab1906",
+          "forgejo_id": 48,
+          "forgejo_uuid": "35b75d63-eade-41dd-8c5b-2b67e2f46a38",
+          "github_id": 652425312
+        },
+        {
+          "name": "sub2api-reauth_2.12.0-custom.3_linux_arm64.tar.gz",
+          "size": 78657200,
+          "sha256": "9604230de07550efa91f0f7768c6db467dc08db2bc1a761a07fa7320f3703e15",
+          "forgejo_id": 49,
+          "forgejo_uuid": "f13e1174-0690-49a3-81c7-49f1b9a91fa2",
+          "github_id": 652425313
+        },
+        {
+          "name": "sub2api_2.12.0-custom.3_darwin_amd64.tar.gz",
+          "size": 45451053,
+          "sha256": "2d4df3af592267d2723a1bad97cc46f76c0a4694f8852d881a7dbc29f753de8e",
+          "forgejo_id": 50,
+          "forgejo_uuid": "aa4e7cac-0baf-4b9d-95c0-6043fb5ed9c9",
+          "github_id": 652424915
+        },
+        {
+          "name": "sub2api_2.12.0-custom.3_darwin_arm64.tar.gz",
+          "size": 42495889,
+          "sha256": "7a6a00e8f4f77303be9df9f800e5a584fa544029581431e98fc4b1fe3d33bded",
+          "forgejo_id": 51,
+          "forgejo_uuid": "d100ca2a-a240-47ee-bc30-514bb4161daa",
+          "github_id": 652424918
+        },
+        {
+          "name": "sub2api_2.12.0-custom.3_linux_amd64.tar.gz",
+          "size": 44188568,
+          "sha256": "9d93f0d355d1ec0b6e29d3bdb274ba707ffbcfcf6b847e539aeef8b633d47581",
+          "forgejo_id": 52,
+          "forgejo_uuid": "54dc26d1-cb2b-4d2a-8b9c-cd7a064413fe",
+          "github_id": 652424938
+        },
+        {
+          "name": "sub2api_2.12.0-custom.3_linux_arm64.tar.gz",
+          "size": 40187900,
+          "sha256": "51dfb9446e6c5d2c197dc6d4ded4438537136094ece1fcf6acaa7ef5e6c86573",
+          "forgejo_id": 53,
+          "forgejo_uuid": "5e9d5bff-39d3-4bc7-8b89-ec8684f4b111",
+          "github_id": 652425014
+        },
+        {
+          "name": "sub2api_2.12.0-custom.3_windows_amd64.zip",
+          "size": 44957774,
+          "sha256": "2ca142169c964ff1a313287b7b75695a57524497790cbd4c94c23e50e3f7b1ad",
+          "forgejo_id": 54,
+          "forgejo_uuid": "04a6499b-6f46-4dc4-a471-af137ab172cf",
+          "github_id": 652424909
+        }
+      ]
+    },
+    {
+      "tag": "v2.13.0-custom.1",
+      "tag_object": "8143be8e8603a2f21cd65feb32371a178758cefd",
+      "commit": "a55f9ca3088d63060ed976f0593aa59f2cec5c1b",
+      "name": "Sub2API 2.13.0-custom.1",
+      "body_sha256": "96eea96e26957f6194ef416a5883cf746c396532445421d9c5f630970a4cddd2",
+      "forgejo_id": 8,
+      "github_id": 418016271,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "d1bb5b4662b8ec49e5b2ffcac283c3268dcc5bbb0d6930f149a41140cf2405d1",
+          "forgejo_id": 55,
+          "forgejo_uuid": "6eae2aef-cdaa-4a9b-ae39-64a7e078acf0",
+          "github_id": 658312362
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.1_linux_amd64.tar.gz",
+          "size": 80030861,
+          "sha256": "b4653fa3ee418c4c2d6fc0abb1ab275347609415bac285992b68b3233d1bccde",
+          "forgejo_id": 56,
+          "forgejo_uuid": "2a5d3fe6-f4fd-468b-995c-f4ac1b21d3e4",
+          "github_id": 658312900
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.1_linux_arm64.tar.gz",
+          "size": 78671201,
+          "sha256": "2726f65c8b6737df44b10cfa02beb92c429cd82fadbdb9ba60c2c5f7d9c34374",
+          "forgejo_id": 57,
+          "forgejo_uuid": "f5d3f75f-b607-4719-a5e0-c4b66c53cd36",
+          "github_id": 658312898
+        },
+        {
+          "name": "sub2api_2.13.0-custom.1_darwin_amd64.tar.gz",
+          "size": 45846258,
+          "sha256": "5e2af5fc8098c06afee0c50ec8acd91e0ac881e22c75de528b0afc71b0e0c7df",
+          "forgejo_id": 58,
+          "forgejo_uuid": "2c5cefc9-92ba-44a3-8b69-bd381ad81c74",
+          "github_id": 658312366
+        },
+        {
+          "name": "sub2api_2.13.0-custom.1_darwin_arm64.tar.gz",
+          "size": 42877069,
+          "sha256": "5d87349eb811aa95016d82aba8e457faf1910b11218ed90743c91615f4aeaf0b",
+          "forgejo_id": 59,
+          "forgejo_uuid": "a298d888-a6f7-4cde-9908-b0cafae1537e",
+          "github_id": 658312364
+        },
+        {
+          "name": "sub2api_2.13.0-custom.1_linux_amd64.tar.gz",
+          "size": 44587825,
+          "sha256": "4a9f7c546a6aa7102bed493f76e5d65cc166aacf88f619177418250cbecec3b1",
+          "forgejo_id": 60,
+          "forgejo_uuid": "9e5f5e53-1892-47c3-90e1-d6de61da7707",
+          "github_id": 658312363
+        },
+        {
+          "name": "sub2api_2.13.0-custom.1_linux_arm64.tar.gz",
+          "size": 40568359,
+          "sha256": "5c354616663a7bf6e691d4302dc455828a119e23ef7eb112e505a8d7659147e2",
+          "forgejo_id": 61,
+          "forgejo_uuid": "48bd84ed-4895-41f8-8ed5-abe97dc54a0c",
+          "github_id": 658312418
+        },
+        {
+          "name": "sub2api_2.13.0-custom.1_windows_amd64.zip",
+          "size": 45358117,
+          "sha256": "291caddf46e8111673380df6619a3a3b44cf54f88aa7306799e0b55105d3477d",
+          "forgejo_id": 62,
+          "forgejo_uuid": "d81dd7aa-2382-459c-b5ec-d6d92eb78fa0",
+          "github_id": 658312474
+        }
+      ]
+    },
+    {
+      "tag": "v2.13.0-custom.2",
+      "tag_object": "45f3278f019cf36b1503acad3f5df3a6c073fade",
+      "commit": "91853219303cf175d1055289ff7dfe9a65fa4b05",
+      "name": "Sub2API 2.13.0-custom.2",
+      "body_sha256": "628b82e8f328d781ca33e7523b03a9c52be35e837fc4172ae0b18cb214b6d269",
+      "forgejo_id": 9,
+      "github_id": 419143696,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "8e605af479aacb0cda0cb660d146c061d4dbba6f3dc7b94fc9924e8a43833dcd",
+          "forgejo_id": 63,
+          "forgejo_uuid": "82e5c5be-3644-4bee-88c8-d5b427b913b6",
+          "github_id": 661300733
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.2_linux_amd64.tar.gz",
+          "size": 79999764,
+          "sha256": "e85208e4c3d06fb43719438b6c774eb554b47c43940ce1702253f596e69de7bb",
+          "forgejo_id": 64,
+          "forgejo_uuid": "2db16a6e-46f8-43c9-8168-a39b5f6c0065",
+          "github_id": 661301008
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.2_linux_arm64.tar.gz",
+          "size": 78663418,
+          "sha256": "0011863db7c4d3c8130c7d6978de2d6b51a32f14a02b9b9a5c925109de972181",
+          "forgejo_id": 65,
+          "forgejo_uuid": "e457dedc-5894-4aff-ac33-486e8251dfe3",
+          "github_id": 661301006
+        },
+        {
+          "name": "sub2api_2.13.0-custom.2_darwin_amd64.tar.gz",
+          "size": 46389778,
+          "sha256": "aee7f4ece3edfe82ef368faea64b355c9d88bf4ddaeeb1a4a0a10b32135ebc0f",
+          "forgejo_id": 66,
+          "forgejo_uuid": "210c0ccf-9e2e-41a9-8f0a-0352ac18c219",
+          "github_id": 661300731
+        },
+        {
+          "name": "sub2api_2.13.0-custom.2_darwin_arm64.tar.gz",
+          "size": 43438298,
+          "sha256": "c7efc31ea79adcd552de8ceedbe24f2baa97567f3a4a6a4109acb43a0ece44ac",
+          "forgejo_id": 67,
+          "forgejo_uuid": "c4167490-6527-4052-a8e0-adb34def778a",
+          "github_id": 661300729
+        },
+        {
+          "name": "sub2api_2.13.0-custom.2_linux_amd64.tar.gz",
+          "size": 45127154,
+          "sha256": "735569f9380dc45ad08497fe17e3aeef83d8648b77307c31231d5210bd1b4b38",
+          "forgejo_id": 68,
+          "forgejo_uuid": "29fb94f5-f0c0-4023-8322-751a5788ac92",
+          "github_id": 661300755
+        },
+        {
+          "name": "sub2api_2.13.0-custom.2_linux_arm64.tar.gz",
+          "size": 41103534,
+          "sha256": "2c44bc2fbec22733d39f47979b1b0775744a2450cf06a759fb2bba089773fc00",
+          "forgejo_id": 69,
+          "forgejo_uuid": "6a6a69b3-bd0f-4602-b421-e57078e55fc6",
+          "github_id": 661300827
+        },
+        {
+          "name": "sub2api_2.13.0-custom.2_windows_amd64.zip",
+          "size": 45908159,
+          "sha256": "1eb3cce0ca5bf780bcb9a6e0c054c3d02f521da012cc234d2c64bc76c5c9db30",
+          "forgejo_id": 70,
+          "forgejo_uuid": "7aa1a8d1-98a7-446b-ad62-03e3f078d3a5",
+          "github_id": 661300734
+        }
+      ]
+    },
+    {
+      "tag": "v2.13.0-custom.3",
+      "tag_object": "e58113b5df49bdfbe1d2794de36f0002dfc21f00",
+      "commit": "55d4ca84e6cf9a305f3319b0fad07955dfa58d76",
+      "name": "Sub2API 2.13.0-custom.3",
+      "body_sha256": "dac8c82a8d42855f36b49b293e2302072b026c9e13cd78ec25ead7402ba12f47",
+      "forgejo_id": 10,
+      "github_id": 419259271,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "811d18e8d455a15dac142216f6563dbdd0df29b84399039f1d4f1a1dbf79a6cf",
+          "forgejo_id": 71,
+          "forgejo_uuid": "e2d978e3-8f21-40bf-a631-19370a296bad",
+          "github_id": 661681285
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.3_linux_amd64.tar.gz",
+          "size": 80026960,
+          "sha256": "04f2e63a1fb66a600d4111557fc418bad287d875c6778d1f90cf56018d19f999",
+          "forgejo_id": 72,
+          "forgejo_uuid": "32f5ed5c-50c8-46f4-9f2f-8417ea43c6cb",
+          "github_id": 661681649
+        },
+        {
+          "name": "sub2api-reauth_2.13.0-custom.3_linux_arm64.tar.gz",
+          "size": 78686048,
+          "sha256": "dfd3f1dc5932e5cb3fb877198ed78e06217ca4e1eea5e9bb540e612fc1a90467",
+          "forgejo_id": 73,
+          "forgejo_uuid": "d8b5ecd0-04f0-447a-94c5-b3b1503e17c7",
+          "github_id": 661681648
+        },
+        {
+          "name": "sub2api_2.13.0-custom.3_darwin_amd64.tar.gz",
+          "size": 46448539,
+          "sha256": "b317625e30d97478bf9e2132cc501aa939faab357d438dc5df02c0f4dde32cee",
+          "forgejo_id": 74,
+          "forgejo_uuid": "25fcc0d5-fcec-4c0f-b48d-dbca43140ec3",
+          "github_id": 661681290
+        },
+        {
+          "name": "sub2api_2.13.0-custom.3_darwin_arm64.tar.gz",
+          "size": 43497684,
+          "sha256": "c7fe587179c1308497fa3e9033ec72d8af74e8811d380973c07517a93850262f",
+          "forgejo_id": 75,
+          "forgejo_uuid": "7e5b4c21-098f-4639-a28a-488409dd2e11",
+          "github_id": 661681282
+        },
+        {
+          "name": "sub2api_2.13.0-custom.3_linux_amd64.tar.gz",
+          "size": 45204216,
+          "sha256": "296359dc900458f975ab49b5e7cd3d5cf933f69dcfeca94622edb0cef6c14009",
+          "forgejo_id": 76,
+          "forgejo_uuid": "64555a80-ff42-4af2-9db0-62b4db81c97b",
+          "github_id": 661681305
+        },
+        {
+          "name": "sub2api_2.13.0-custom.3_linux_arm64.tar.gz",
+          "size": 41166855,
+          "sha256": "96fec49421fd53d48eae9f231dbb41cb6de5159611a20f78b669fecf753c36b7",
+          "forgejo_id": 77,
+          "forgejo_uuid": "0c4bebb0-ce9b-43ea-af71-1fe1caab3ac2",
+          "github_id": 661681359
+        },
+        {
+          "name": "sub2api_2.13.0-custom.3_windows_amd64.zip",
+          "size": 45975083,
+          "sha256": "3e684b9e803063de07c77f0322b544ac05e6b0d762775a9cfc46cfd64dc0e82e",
+          "forgejo_id": 78,
+          "forgejo_uuid": "b1796c90-5a02-46b7-a436-bc458daacaf6",
+          "github_id": 661681283
+        }
+      ]
+    },
+    {
+      "tag": "v2.13.3-custom.1",
+      "tag_object": "074827cc5ab7ca45ebe8fba54f70de34c7cd82fd",
+      "commit": "4267aceae098f59dfe4574726cf50140a27d4926",
+      "name": "Sub2API 2.13.3-custom.1",
+      "body_sha256": "030f351b8bc5851f0d66b35ff058593ebbacf2280e3ad190f97b4f56ed172ee2",
+      "forgejo_id": 11,
+      "github_id": 419449799,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "5f5e26ff17c5da35f1707f42a3ff7afa44676464261659c5cf8ea928b9b589fd",
+          "forgejo_id": 79,
+          "forgejo_uuid": "1cc68dc1-85dc-4214-ae68-f450315ac055",
+          "github_id": 662204775
+        },
+        {
+          "name": "sub2api-reauth_2.13.3-custom.1_linux_amd64.tar.gz",
+          "size": 79988928,
+          "sha256": "19201099d6f7a5e0e8afc43917b06453d68f2a4f0100e007d77183dc3d4dd057",
+          "forgejo_id": 80,
+          "forgejo_uuid": "bcf65a6e-ca24-4aa1-9389-b530ea6078c7",
+          "github_id": 662205087
+        },
+        {
+          "name": "sub2api-reauth_2.13.3-custom.1_linux_arm64.tar.gz",
+          "size": 78686861,
+          "sha256": "38aae1715c2a28ee1c9c2295eaec7dd142ee8646cfe5d65c60f42af6e648b4b6",
+          "forgejo_id": 81,
+          "forgejo_uuid": "ea1b933f-d72b-4a7c-b4ff-d9cc184ed414",
+          "github_id": 662205086
+        },
+        {
+          "name": "sub2api_2.13.3-custom.1_darwin_amd64.tar.gz",
+          "size": 46676016,
+          "sha256": "2ddb7c494e8dfbbda7562ab5acedbaf95c818629b1ea97e70891d2c8edb58971",
+          "forgejo_id": 82,
+          "forgejo_uuid": "bfac64e4-42a2-4ec1-9be1-e26a99cddbe9",
+          "github_id": 662204770
+        },
+        {
+          "name": "sub2api_2.13.3-custom.1_darwin_arm64.tar.gz",
+          "size": 43715512,
+          "sha256": "3104f7e17b38fc73771ef236ff52b53c01ddbccea1a52de72196f1c845134d4e",
+          "forgejo_id": 83,
+          "forgejo_uuid": "3c82c4db-7e12-4e22-8f97-3e3a9659188a",
+          "github_id": 662204800
+        },
+        {
+          "name": "sub2api_2.13.3-custom.1_linux_amd64.tar.gz",
+          "size": 45409927,
+          "sha256": "59e736a3a5cf19618fd6435f84c7fd07012f7a99704cc58967cc9413c4b6de8c",
+          "forgejo_id": 84,
+          "forgejo_uuid": "7aebe79b-fb72-4eb4-af6e-2797bd1fc846",
+          "github_id": 662204889
+        },
+        {
+          "name": "sub2api_2.13.3-custom.1_linux_arm64.tar.gz",
+          "size": 41375246,
+          "sha256": "c7165597f64171a2470d5b39c32eaf55bef1b560ec3be126bd3028372a713b57",
+          "forgejo_id": 85,
+          "forgejo_uuid": "98e45d67-df42-4f79-bd9b-d2f374dd6af9",
+          "github_id": 662204774
+        },
+        {
+          "name": "sub2api_2.13.3-custom.1_windows_amd64.zip",
+          "size": 46183468,
+          "sha256": "0d52ee3c8467146e81abf7cbbbd8c0aa98f1d3b75543945667ad97fb50c914fb",
+          "forgejo_id": 86,
+          "forgejo_uuid": "6f0b4791-2582-4927-a4ea-e679bd38cbf8",
+          "github_id": 662204772
+        }
+      ]
+    },
+    {
+      "tag": "v2.15.0-custom.1",
+      "tag_object": "492b343bf3318c92f20bcc8466df71aff69082d7",
+      "commit": "fde8457c6e240b6495189031a292e263b58021ad",
+      "name": "Sub2API 2.15.0-custom.1",
+      "body_sha256": "16193bb652917e9764fcad167c461bc6278fc66b1ea619bac75d57874ceead9a",
+      "forgejo_id": 12,
+      "github_id": 420341012,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "ab57de9e0180d625af1aef65194f59f9ca7f3116d7ca48b15dd31964cc2bde97",
+          "forgejo_id": 87,
+          "forgejo_uuid": "9b97a32a-c90c-47d6-bab9-7ea2f67c94c8",
+          "github_id": 664787452
+        },
+        {
+          "name": "sub2api-reauth_2.15.0-custom.1_linux_amd64.tar.gz",
+          "size": 79990564,
+          "sha256": "3154499a126ddd741484c918c6035359804f0746e286936440e37c1e409b705b",
+          "forgejo_id": 88,
+          "forgejo_uuid": "583a6f3b-98af-4732-af1f-f17d6dad1ad5",
+          "github_id": 664787787
+        },
+        {
+          "name": "sub2api-reauth_2.15.0-custom.1_linux_arm64.tar.gz",
+          "size": 78671316,
+          "sha256": "38d70cc0d9090803b4ffa2deb5070559f0e4ceb9cfd188ca4262f50a7984f708",
+          "forgejo_id": 89,
+          "forgejo_uuid": "07a19b32-2fad-4c86-988d-bfa621cce5a9",
+          "github_id": 664787788
+        },
+        {
+          "name": "sub2api_2.15.0-custom.1_darwin_amd64.tar.gz",
+          "size": 46806240,
+          "sha256": "9594ec1b28d46f71919c200f016b372cfeedda3d0fdb96ea8deacd12ca124684",
+          "forgejo_id": 90,
+          "forgejo_uuid": "d4a42b56-1c70-4806-8a46-7f4bd6b47db0",
+          "github_id": 664787474
+        },
+        {
+          "name": "sub2api_2.15.0-custom.1_darwin_arm64.tar.gz",
+          "size": 43828080,
+          "sha256": "371507bf22f7f98d5324aee01722c32f98ba9b0a1ec591abdc93832ece143c27",
+          "forgejo_id": 91,
+          "forgejo_uuid": "6e2e6b79-ee9b-42f5-9be3-403f51601659",
+          "github_id": 664787523
+        },
+        {
+          "name": "sub2api_2.15.0-custom.1_linux_amd64.tar.gz",
+          "size": 45539247,
+          "sha256": "66962ec5f678411e1c31a2d294de13b64f7d89f3c0ffaff311ffa35b7156a4b1",
+          "forgejo_id": 92,
+          "forgejo_uuid": "64fe4cd3-85f1-4621-add3-249ed87721fd",
+          "github_id": 664787451
+        },
+        {
+          "name": "sub2api_2.15.0-custom.1_linux_arm64.tar.gz",
+          "size": 41491207,
+          "sha256": "b3dae876b31ae2a067c6d4c2187304d50225cdc789d3fa2555d28e4be9c37053",
+          "forgejo_id": 93,
+          "forgejo_uuid": "ae45578b-de7e-49b0-940c-72a875a22ed3",
+          "github_id": 664787457
+        },
+        {
+          "name": "sub2api_2.15.0-custom.1_windows_amd64.zip",
+          "size": 46310969,
+          "sha256": "70c5eeef02c4740ee1551e0a8c708e3fa558efba3438827f92fd1c2fcbb389db",
+          "forgejo_id": 94,
+          "forgejo_uuid": "4b00588c-015a-4a0b-bda8-237d4f3c9e66",
+          "github_id": 664787458
+        }
+      ]
+    },
+    {
+      "tag": "v2.16.0-custom.1",
+      "tag_object": "a4640c19b3de2b63bb1fb83348cf560b4f262c30",
+      "commit": "3eb23a38073f5312cccc14bb238796fdd1d6821a",
+      "name": "Sub2API 2.16.0-custom.1",
+      "body_sha256": "9ec37a016438b642b710f70e9b8a0bb8a32dbb4db433331e61e33b06318799a3",
+      "forgejo_id": 13,
+      "github_id": 422561542,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "1d22d80f05612dd106c06baa244255e0b955bea8959d763f1c73fee71cc69be5",
+          "forgejo_id": 95,
+          "forgejo_uuid": "5f44b192-5b59-44c8-bd28-c10e8655884b",
+          "github_id": 671489133
+        },
+        {
+          "name": "sub2api-reauth_2.16.0-custom.1_linux_amd64.tar.gz",
+          "size": 80029674,
+          "sha256": "a80cd446bf4d3ea1dc7ce8d3fd992eeed731935c9af49f4547ff1790dd3cdfc2",
+          "forgejo_id": 96,
+          "forgejo_uuid": "8f796b23-f67a-49e1-ac43-fac4279de059",
+          "github_id": 671489592
+        },
+        {
+          "name": "sub2api-reauth_2.16.0-custom.1_linux_arm64.tar.gz",
+          "size": 78669849,
+          "sha256": "bdffe4a122eaea1b6b6b4ba35021ba1959e58b448415a6f64d25340bae60cf9a",
+          "forgejo_id": 97,
+          "forgejo_uuid": "5066016e-a15a-44a1-83fe-52af34811968",
+          "github_id": 671489593
+        },
+        {
+          "name": "sub2api_2.16.0-custom.1_darwin_amd64.tar.gz",
+          "size": 47019213,
+          "sha256": "bffa40e3aa48bbe6e64cff710a5c38a7bbb5c23cf2269d8b1e7c12b22aefdba8",
+          "forgejo_id": 98,
+          "forgejo_uuid": "4d0a39c3-5d8e-4fe8-ab57-9a59b2722cf7",
+          "github_id": 671489136
+        },
+        {
+          "name": "sub2api_2.16.0-custom.1_darwin_arm64.tar.gz",
+          "size": 44049529,
+          "sha256": "91d44546e6e79e9645e6e377100221fde849034b4117199ec5770bcb5d48b840",
+          "forgejo_id": 99,
+          "forgejo_uuid": "78ff6ee3-103f-4fa4-8438-5aa05ab88d7c",
+          "github_id": 671489167
+        },
+        {
+          "name": "sub2api_2.16.0-custom.1_linux_amd64.tar.gz",
+          "size": 45752719,
+          "sha256": "64a58c6621a4f9f0d36a78e1e6cfc12c5598067c7aa1a747af00f423e0ec034a",
+          "forgejo_id": 100,
+          "forgejo_uuid": "591da399-e50d-45f2-9107-b46d77d784c9",
+          "github_id": 671489315
+        },
+        {
+          "name": "sub2api_2.16.0-custom.1_linux_arm64.tar.gz",
+          "size": 41695375,
+          "sha256": "493dc030115421a0b08ce8d59f81e9c4be45bf39c2d420b26789ae6e5bbfd3ce",
+          "forgejo_id": 101,
+          "forgejo_uuid": "9e6568dd-7224-4c38-8184-3af95fe9ebc8",
+          "github_id": 671489134
+        },
+        {
+          "name": "sub2api_2.16.0-custom.1_windows_amd64.zip",
+          "size": 46553417,
+          "sha256": "c98659ba90e72880098d08235f69557e3686f4526a05ce70533fd6424f8a2d54",
+          "forgejo_id": 102,
+          "forgejo_uuid": "7e598141-04c5-4580-95fe-6fb83ab1f2b1",
+          "github_id": 671489138
+        }
+      ]
+    },
+    {
+      "tag": "v2.17.0-custom.1",
+      "tag_object": "a1e798feb14b6d619c856da4b4d080ac7ca15d76",
+      "commit": "537cca98d3a6f01d63978a68a0f4dceb128ac832",
+      "name": "Sub2API 2.17.0-custom.1",
+      "body_sha256": "ee8bfd7929656374ea53d34f0ab052f2bd29dcde8b482817aec5892198cc9166",
+      "forgejo_id": 14,
+      "github_id": 422642096,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "0763dfc7b5505f9aec93d0022246755d739edbcfd303eb323774a0797d91d74e",
+          "forgejo_id": 103,
+          "forgejo_uuid": "1e891e5e-898f-4ce7-9d9f-4b6463b5ee65",
+          "github_id": 671869249
+        },
+        {
+          "name": "sub2api-reauth_2.17.0-custom.1_linux_amd64.tar.gz",
+          "size": 80031211,
+          "sha256": "73daab0ffdd97110c3f5033f611b84fce4f9600a9eb62d2d7ad8f89506563f4c",
+          "forgejo_id": 104,
+          "forgejo_uuid": "7f4f6555-9ef6-4f19-84b9-42b2ff053cdf",
+          "github_id": 671869729
+        },
+        {
+          "name": "sub2api-reauth_2.17.0-custom.1_linux_arm64.tar.gz",
+          "size": 78668547,
+          "sha256": "b0ce2bc10b76c04af2a4d33a2d8f4bd3b67e89271a55e2d747a5bc8f2903ba8f",
+          "forgejo_id": 105,
+          "forgejo_uuid": "a81c2ea6-85ac-49c5-81b9-772932ae6dd5",
+          "github_id": 671869728
+        },
+        {
+          "name": "sub2api_2.17.0-custom.1_darwin_amd64.tar.gz",
+          "size": 47110831,
+          "sha256": "30595338da6fe6436b390decf670f624cdf1d206b213c27752c7c5da0e95434d",
+          "forgejo_id": 106,
+          "forgejo_uuid": "0c9d6e42-e893-4a5b-b55d-67805ddf5a57",
+          "github_id": 671869359
+        },
+        {
+          "name": "sub2api_2.17.0-custom.1_darwin_arm64.tar.gz",
+          "size": 44121220,
+          "sha256": "40ffaad0196f5db7094439ba07d3e62ca455fecb8138cc3c81dfc48820c96a25",
+          "forgejo_id": 107,
+          "forgejo_uuid": "763b64f8-874a-4150-a456-9fbe3f27a7bc",
+          "github_id": 671869245
+        },
+        {
+          "name": "sub2api_2.17.0-custom.1_linux_amd64.tar.gz",
+          "size": 45841447,
+          "sha256": "061e7733dfc9c21b7405f6180f848f3f534064ee9e9c844d8f2961e876a201ca",
+          "forgejo_id": 108,
+          "forgejo_uuid": "c614792c-baa2-4939-95e9-1919ff7cfd48",
+          "github_id": 671869247
+        },
+        {
+          "name": "sub2api_2.17.0-custom.1_linux_arm64.tar.gz",
+          "size": 41781146,
+          "sha256": "e7f21134fa18a80e3657db0b2438b1df5ea02dafd341d986e2f8a84301737cc9",
+          "forgejo_id": 109,
+          "forgejo_uuid": "387cf49f-085a-4279-879c-f3500ab6421b",
+          "github_id": 671869241
+        },
+        {
+          "name": "sub2api_2.17.0-custom.1_windows_amd64.zip",
+          "size": 46631570,
+          "sha256": "fe67e9f0c63dd907594bf735cefb30ca374103017946d99382e239213abb5f3b",
+          "forgejo_id": 110,
+          "forgejo_uuid": "3a26cd9f-460c-4cc6-9e24-dcd1d58ab151",
+          "github_id": 671869266
+        }
+      ]
+    },
+    {
+      "tag": "v2.17.7-custom.2",
+      "tag_object": "79629380eb6881fb0cdc594107b8b2f69c004a18",
+      "commit": "c4c4254262314cf87e021ed2f6e82d42c23bf6f6",
+      "name": "Sub2API 2.17.7-custom.2",
+      "body_sha256": "cfe00ce7eff673102ffd18690dc69991d412c32ed7f88cf72b94a456d1026950",
+      "forgejo_id": 16,
+      "github_id": 426263386,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "897e550290402c86d484b060a89a769a100b32af04fb3ae243403a2cea430c97",
+          "forgejo_id": 111,
+          "forgejo_uuid": "74b560b6-06c6-4d0f-acbc-f2d0ea5097b9",
+          "github_id": 683818119
+        },
+        {
+          "name": "sub2api-reauth_2.17.7-custom.2_linux_amd64.tar.gz",
+          "size": 80037180,
+          "sha256": "863bec2ea82f3aab56769bbdcd596e28e53d6c9628c10dfe6b8813afb36aa417",
+          "forgejo_id": 112,
+          "forgejo_uuid": "c40574fd-58b3-4310-b37f-008ff85365e1",
+          "github_id": 683818522
+        },
+        {
+          "name": "sub2api-reauth_2.17.7-custom.2_linux_arm64.tar.gz",
+          "size": 78674638,
+          "sha256": "b7a6908885d4642394defbaa89df549b9d0e072a419e603c6f425ea82ad485b0",
+          "forgejo_id": 113,
+          "forgejo_uuid": "de659da6-ea76-4c73-a8f2-e28728e61c5e",
+          "github_id": 683818525
+        },
+        {
+          "name": "sub2api_2.17.7-custom.2_darwin_amd64.tar.gz",
+          "size": 47341384,
+          "sha256": "02d2ff423873c407bedf312453d79d7c41ad69439c9210bd4b0b32aeda8a0223",
+          "forgejo_id": 114,
+          "forgejo_uuid": "ab4db2f3-daf9-474b-b39d-139ad9919164",
+          "github_id": 683818115
+        },
+        {
+          "name": "sub2api_2.17.7-custom.2_darwin_arm64.tar.gz",
+          "size": 44324004,
+          "sha256": "47657eb3ace8a79a0fb6a4c4e3dcf2ceac87dbf85746b5be56d00c9ed321589f",
+          "forgejo_id": 115,
+          "forgejo_uuid": "54cc1fdb-93f3-4b66-8055-52c2455d5691",
+          "github_id": 683818153
+        },
+        {
+          "name": "sub2api_2.17.7-custom.2_linux_amd64.tar.gz",
+          "size": 46060448,
+          "sha256": "a0bd77534ac9a4465d45d58e49ba61bf9f178e92cfc96fa6145bf23f6bc0d9c1",
+          "forgejo_id": 116,
+          "forgejo_uuid": "6c14526c-a66b-4e53-b734-1b456a0f388d",
+          "github_id": 683818236
+        },
+        {
+          "name": "sub2api_2.17.7-custom.2_linux_arm64.tar.gz",
+          "size": 41973659,
+          "sha256": "ab83e2b6e98b73419d71d208d0efe9fa8da1735fdde900f3b4d0b874515fea56",
+          "forgejo_id": 117,
+          "forgejo_uuid": "00147721-326a-4682-8ef5-e3415a1a05a0",
+          "github_id": 683818118
+        },
+        {
+          "name": "sub2api_2.17.7-custom.2_windows_amd64.zip",
+          "size": 46850639,
+          "sha256": "9ec569b7cdc6dc7033bf04d4a6473cd240cc4a1034652df3e98b64d58e73fd04",
+          "forgejo_id": 118,
+          "forgejo_uuid": "1a84dd0e-f118-4333-bd9e-8e1e76ac0b62",
+          "github_id": 683818117
+        }
+      ]
+    },
+    {
+      "tag": "v2.18.0-custom.2",
+      "tag_object": "1ec1efe78ff5634bdfddeac46434dc2ad82456ec",
+      "commit": "f0971db8810acb2228614cb41a41b4572b85a53d",
+      "name": "Sub2API 2.18.0-custom.2",
+      "body_sha256": "e014f11a18a7048c617ae231ca4a11ccecd3702d9eca12dc8f496748358b070a",
+      "forgejo_id": 18,
+      "github_id": 427513314,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "be385b745cb1017d49d5f05d7b3d9da5ec3996d32d099acfa02a9836e4be0085",
+          "forgejo_id": 119,
+          "forgejo_uuid": "d5d479e1-dc1b-41b1-b262-e92685de1640",
+          "github_id": 687534228
+        },
+        {
+          "name": "sub2api-reauth_2.18.0-custom.2_linux_amd64.tar.gz",
+          "size": 80035230,
+          "sha256": "f43713f58678ac29442bc25ae24b2c55a5a56f7f325b2f1be2515cf07e8c09e1",
+          "forgejo_id": 120,
+          "forgejo_uuid": "a68d1a36-1675-4921-83bd-01238058e593",
+          "github_id": 687534494
+        },
+        {
+          "name": "sub2api-reauth_2.18.0-custom.2_linux_arm64.tar.gz",
+          "size": 78682348,
+          "sha256": "c03dfdad8d7cf81f1614b9300e3038dcaefde847f908d63261af3bd26c0a984d",
+          "forgejo_id": 121,
+          "forgejo_uuid": "7afb8b98-0329-4826-b25e-2c092c3145c6",
+          "github_id": 687534493
+        },
+        {
+          "name": "sub2api_2.18.0-custom.2_darwin_amd64.tar.gz",
+          "size": 47564251,
+          "sha256": "ae23fb1a80723829b540d880b241028ce6e58624510d1afe6bf0bfbdd0df140f",
+          "forgejo_id": 122,
+          "forgejo_uuid": "3d5f47a2-1a7a-4186-a1ed-220a331a9e6c",
+          "github_id": 687534229
+        },
+        {
+          "name": "sub2api_2.18.0-custom.2_darwin_arm64.tar.gz",
+          "size": 44567667,
+          "sha256": "c4f41ede1b32b8cc323e28e5d9295826a7837db0701251dcca8a5702058e5810",
+          "forgejo_id": 123,
+          "forgejo_uuid": "1f2fd576-fd5e-4db8-af71-66e08956138f",
+          "github_id": 687534231
+        },
+        {
+          "name": "sub2api_2.18.0-custom.2_linux_amd64.tar.gz",
+          "size": 46294708,
+          "sha256": "1a8f0dd25985d90bd0ba7d983a93336ef8f7596b22497ee594f732588092b9e0",
+          "forgejo_id": 124,
+          "forgejo_uuid": "890026ea-2088-45d0-878c-2b4dc6afc892",
+          "github_id": 687534227
+        },
+        {
+          "name": "sub2api_2.18.0-custom.2_linux_arm64.tar.gz",
+          "size": 42189722,
+          "sha256": "afa3350a255dbc20edf98812b965de2256b3cdc393fb6e232d5dd4e4755400ed",
+          "forgejo_id": 125,
+          "forgejo_uuid": "f75d5cfa-10e6-47f5-abf1-9ab40d52602c",
+          "github_id": 687534244
+        },
+        {
+          "name": "sub2api_2.18.0-custom.2_windows_amd64.zip",
+          "size": 47087960,
+          "sha256": "e97fed1593011d74546b389c5e56f3ff714945b0d41a654dea48473631f264a4",
+          "forgejo_id": 126,
+          "forgejo_uuid": "6e7ae3df-d77d-433f-9973-407b04146c04",
+          "github_id": 687534308
+        }
+      ]
+    },
+    {
+      "tag": "v2.19.1-custom.1",
+      "tag_object": "bac08a1f6dd52b600d35655c5f9c3e35ead3af33",
+      "commit": "f3d95dd1a70029d963e215434a6940c164e8c305",
+      "name": "Sub2API 2.19.1-custom.1",
+      "body_sha256": "68c983e227b6ad1d636d4ee3f9cf38c1c1e6cb59ba54895f14f59ac2d26376fe",
+      "forgejo_id": 19,
+      "github_id": 431152746,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "0f78bcde3d400cb5d0a5737f84995b460197eb14e963dda85c6d2fc5c344a8e1",
+          "forgejo_id": 127,
+          "forgejo_uuid": "794b1952-46b6-4a15-b7a1-e030b27a5b90",
+          "github_id": 700835655
+        },
+        {
+          "name": "sub2api-reauth_2.19.1-custom.1_linux_amd64.tar.gz",
+          "size": 80033094,
+          "sha256": "14089798f8eed5b1c12824dba85cd5711cbd72a76fcf9f0754d54934b280a20b",
+          "forgejo_id": 128,
+          "forgejo_uuid": "ca8d0bf2-a186-4018-b4b5-1e7841d4a380",
+          "github_id": 700836128
+        },
+        {
+          "name": "sub2api-reauth_2.19.1-custom.1_linux_arm64.tar.gz",
+          "size": 78681096,
+          "sha256": "d9b4c48e9dc9e62ee5e280bcff286969a17cc8b8599be27a3befd05dfb145bb2",
+          "forgejo_id": 129,
+          "forgejo_uuid": "3fbe373e-bc13-46c5-ad6e-6f19c3dd6217",
+          "github_id": 700836124
+        },
+        {
+          "name": "sub2api_2.19.1-custom.1_darwin_amd64.tar.gz",
+          "size": 48438231,
+          "sha256": "6817225148f1633161cec1f1772bd1b3064f5cc5e58f92778f141f7043d8da93",
+          "forgejo_id": 130,
+          "forgejo_uuid": "dafd9619-58e4-43f2-a53f-1017392b9036",
+          "github_id": 700835660
+        },
+        {
+          "name": "sub2api_2.19.1-custom.1_darwin_arm64.tar.gz",
+          "size": 45379422,
+          "sha256": "96cc4f4f8583511fe1c7428fa5ed6d4bbdb1590c41e1ebfcd05e7903fdafa3f4",
+          "forgejo_id": 131,
+          "forgejo_uuid": "a192e060-2097-4862-9c12-e2d9936c43a6",
+          "github_id": 700835662
+        },
+        {
+          "name": "sub2api_2.19.1-custom.1_linux_amd64.tar.gz",
+          "size": 47165296,
+          "sha256": "dd3a5f937910321b91b7221bc63bbe5a299d7e40c41daf2f4c8d73ea112c5cb9",
+          "forgejo_id": 132,
+          "forgejo_uuid": "9b402e69-6c26-4d8d-b623-45aa00572e72",
+          "github_id": 700835657
+        },
+        {
+          "name": "sub2api_2.19.1-custom.1_linux_arm64.tar.gz",
+          "size": 42997117,
+          "sha256": "16ced7437cc3966a5f6bf28be95ff42633d2a460fd9926ff95c8ce84f614914c",
+          "forgejo_id": 133,
+          "forgejo_uuid": "095caea0-a0d6-4449-b9f2-a22c11b2d1bc",
+          "github_id": 700835683
+        },
+        {
+          "name": "sub2api_2.19.1-custom.1_windows_amd64.zip",
+          "size": 47982907,
+          "sha256": "d85aca3d146146e660562ee72f6f8ccd4b19efa0d82e4000c242443d68fbd38d",
+          "forgejo_id": 134,
+          "forgejo_uuid": "7d749eea-47c5-4509-861d-97ac93829fa4",
+          "github_id": 700835800
+        }
+      ]
+    },
+    {
+      "tag": "v2.20.0-custom.1",
+      "tag_object": "fd79459b30b3b27fc4ce7baa8e42b7d1683b32ba",
+      "commit": "efc51a702cb88cf794ea24a321d03c4a3d4bb853",
+      "name": "Sub2API 2.20.0-custom.1",
+      "body_sha256": "e1a444432a198ed44467dfa45396650a72fbd2ac5ec08dd3eee2590b4bb16175",
+      "forgejo_id": 20,
+      "github_id": 438011185,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "37e94f9b17ecfa2fe4ce4431329fe1ab06671cd3f9fa0be7e7cfff05c967c2e4",
+          "forgejo_id": 135,
+          "forgejo_uuid": "e62bdf08-e843-4523-ae2a-8b5825b07c03",
+          "github_id": 722773865
+        },
+        {
+          "name": "sub2api-reauth_2.20.0-custom.1_linux_amd64.tar.gz",
+          "size": 80034580,
+          "sha256": "7c755c9dc02d99f3cb1184fcac6bd331bcf36d35ac0bf6f7c0300e0858167cb4",
+          "forgejo_id": 136,
+          "forgejo_uuid": "13a4856f-90e4-4517-b578-06b141065d53",
+          "github_id": 722774262
+        },
+        {
+          "name": "sub2api-reauth_2.20.0-custom.1_linux_arm64.tar.gz",
+          "size": 78677908,
+          "sha256": "55c554ba428d7c8c1b7bebf13567971163dcc39beb4229516a588993c1aecc86",
+          "forgejo_id": 137,
+          "forgejo_uuid": "aba40e1c-c6ff-4bbb-9110-9c84f5b731ee",
+          "github_id": 722774257
+        },
+        {
+          "name": "sub2api_2.20.0-custom.1_darwin_amd64.tar.gz",
+          "size": 53874870,
+          "sha256": "549ace821c1e1f66e10d91a04196e144a71ebaf1aa97a8c0c75ef3e2acf4264c",
+          "forgejo_id": 138,
+          "forgejo_uuid": "9cb36166-6798-44cf-9059-ec606d439154",
+          "github_id": 722773859
+        },
+        {
+          "name": "sub2api_2.20.0-custom.1_darwin_arm64.tar.gz",
+          "size": 50418103,
+          "sha256": "0c711f3ab431fd556d3dd27764d2a041a8ca31fc8a0fbab7ec7f0fc213569a39",
+          "forgejo_id": 139,
+          "forgejo_uuid": "5b925644-8f0c-4a5e-93fd-d4f4c84ed26c",
+          "github_id": 722773869
+        },
+        {
+          "name": "sub2api_2.20.0-custom.1_linux_amd64.tar.gz",
+          "size": 52487000,
+          "sha256": "7b5ed3a7acd441298794602d1923a95696687a630fbf1845e1f59d6b7dcb7ba7",
+          "forgejo_id": 140,
+          "forgejo_uuid": "7a259c08-c906-4553-aee0-9d4c02c13be4",
+          "github_id": 722773866
+        },
+        {
+          "name": "sub2api_2.20.0-custom.1_linux_arm64.tar.gz",
+          "size": 47785722,
+          "sha256": "9d6f1e51e66747f896945c1123cd9b4c8bfefa378161d35d40f89ba8d6dc56a5",
+          "forgejo_id": 141,
+          "forgejo_uuid": "e4996604-5082-45d2-b910-c0daf6989cdf",
+          "github_id": 722773880
+        },
+        {
+          "name": "sub2api_2.20.0-custom.1_windows_amd64.zip",
+          "size": 53439225,
+          "sha256": "7ff687452d8abbaf2369801541917edc882b4a4076cdaf9eefe073501c9651aa",
+          "forgejo_id": 142,
+          "forgejo_uuid": "56c8d676-a240-4993-b6eb-e0bf88e9ea7e",
+          "github_id": 722774000
+        }
+      ]
+    },
+    {
+      "tag": "v2.21.0-custom.1",
+      "tag_object": "9955857be055fa4bf34970feb798bd4a4004d7c1",
+      "commit": "c94ac50eb23285656579e349408d0ea533715108",
+      "name": "Sub2API 2.21.0-custom.1",
+      "body_sha256": "f406371ddc4f9817f62462844689799ff537e957d906002b5d8e907f801183b6",
+      "forgejo_id": 21,
+      "github_id": 442772076,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "dd0565688ad869516ca54cf37682a76a1c4a9715a185f6ca2f581d0286b74349",
+          "forgejo_id": 143,
+          "forgejo_uuid": "d0c7775d-4a92-4788-a98f-cf03c8b40363",
+          "github_id": 738992075
+        },
+        {
+          "name": "sub2api-reauth_2.21.0-custom.1_linux_amd64.tar.gz",
+          "size": 80035255,
+          "sha256": "94d67b9af174a1c8f2f7f0f6f65117abcb07c6ac0feffbe174caf94c5da0beaf",
+          "forgejo_id": 144,
+          "forgejo_uuid": "cae4f836-e2ac-43d3-99d9-23a9ec05425b",
+          "github_id": 738993108
+        },
+        {
+          "name": "sub2api-reauth_2.21.0-custom.1_linux_arm64.tar.gz",
+          "size": 78680833,
+          "sha256": "0dc70257fe73956ef6c2cb27f7d365b51a11803f83b7a20052ffc861a6ed448b",
+          "forgejo_id": 145,
+          "forgejo_uuid": "9c31a3ea-d53f-406a-82f1-571068834d6e",
+          "github_id": 738993107
+        },
+        {
+          "name": "sub2api_2.21.0-custom.1_darwin_amd64.tar.gz",
+          "size": 54211509,
+          "sha256": "b04894da94f3c502c28e140421b7796960b0d3b15b73b4fb06865bfbad665547",
+          "forgejo_id": 146,
+          "forgejo_uuid": "8a9084a8-fa4c-4153-b871-dd6faa1db21f",
+          "github_id": 738992210
+        },
+        {
+          "name": "sub2api_2.21.0-custom.1_darwin_arm64.tar.gz",
+          "size": 50739818,
+          "sha256": "cbc80729ccc55b3f98565ece32794ff8899bc416c0eee7acf2a7145495f64085",
+          "forgejo_id": 147,
+          "forgejo_uuid": "1e57fea1-b01b-4879-b414-df2f85949eab",
+          "github_id": 738992074
+        },
+        {
+          "name": "sub2api_2.21.0-custom.1_linux_amd64.tar.gz",
+          "size": 52799945,
+          "sha256": "654fcd03bffb0c0d5f2debd2fb64cbe4afe6f660a95c03d7a44798c27d408e55",
+          "forgejo_id": 148,
+          "forgejo_uuid": "ae03f3c6-b746-4b9b-805d-05d7824a9676",
+          "github_id": 738992079
+        },
+        {
+          "name": "sub2api_2.21.0-custom.1_linux_arm64.tar.gz",
+          "size": 48098506,
+          "sha256": "f84d478dd3e81c6da2b94134e3fac9fe6acd7a43cf17863a79d9472141466355",
+          "forgejo_id": 149,
+          "forgejo_uuid": "f12bd325-28af-4c80-8455-c21fd657a36b",
+          "github_id": 738992082
+        },
+        {
+          "name": "sub2api_2.21.0-custom.1_windows_amd64.zip",
+          "size": 53749735,
+          "sha256": "40f62ef6727703e000df6e91c8f214bbc826e8a6104670002eeb56bca0450c46",
+          "forgejo_id": 150,
+          "forgejo_uuid": "a56d1465-cf64-42d3-93c1-07c5e1f57315",
+          "github_id": 738992110
+        }
+      ]
+    },
+    {
+      "tag": "v2.22.0-custom.2",
+      "tag_object": "68b31b4290df166a338cb766464903e084d9f4df",
+      "commit": "6347cf4809e55ae69354b24bbfd0943862b6fa72",
+      "name": "Sub2API 2.22.0-custom.2",
+      "body_sha256": "ef75a4923227fd756c1f5c21fa8a7fba8a89e972d9043ffc04021e9f4699de2b",
+      "forgejo_id": 23,
+      "github_id": 449417078,
+      "assets": [
+        {
+          "name": "checksums.txt",
+          "size": 546,
+          "sha256": "02af3a2ff8e9ad4e97415c2fda00fc7202c8c36f6f7db1f345f5e7105f4dc520",
+          "forgejo_id": 151,
+          "forgejo_uuid": "c3f6d115-fe83-4691-885a-6ac860af3615",
+          "github_id": 761418957
+        },
+        {
+          "name": "sub2api-reauth_2.22.0-custom.2_linux_amd64.tar.gz",
+          "size": 80016990,
+          "sha256": "443370e78d3acfbd962ba6952f5b8e69888551a75d9aad32825be87fa1a7b6a3",
+          "forgejo_id": 152,
+          "forgejo_uuid": "e92a062d-8605-4f2b-8f98-e03817fa757b",
+          "github_id": 761419383
+        },
+        {
+          "name": "sub2api-reauth_2.22.0-custom.2_linux_arm64.tar.gz",
+          "size": 78684751,
+          "sha256": "06a1a67c8258623035e7e69204269622c762e273a22ab79cf0159ec817a14fa0",
+          "forgejo_id": 153,
+          "forgejo_uuid": "06cd16fe-5d4f-45a1-a129-8f6de90e434f",
+          "github_id": 761419385
+        },
+        {
+          "name": "sub2api_2.22.0-custom.2_darwin_amd64.tar.gz",
+          "size": 55895189,
+          "sha256": "60be11d8e44ad64f0d19a77dc21059bb2a95c6dc8dde78a750ed118b7f0fe1f7",
+          "forgejo_id": 154,
+          "forgejo_uuid": "75569512-5309-4f4c-970c-f3eb30d777cf",
+          "github_id": 761418958
+        },
+        {
+          "name": "sub2api_2.22.0-custom.2_darwin_arm64.tar.gz",
+          "size": 52374138,
+          "sha256": "69822061b39c2c7681ca443c8fe4d27b2142be734f38822a8a47f990f197cbd6",
+          "forgejo_id": 155,
+          "forgejo_uuid": "ab68d6cf-3a9c-4366-9c58-d9d840198bfa",
+          "github_id": 761418959
+        },
+        {
+          "name": "sub2api_2.22.0-custom.2_linux_amd64.tar.gz",
+          "size": 54504941,
+          "sha256": "eea26c1fd9c8022a1e7f6420552d2f8da5f4dce8d4e1ec2e622bddd5a40bb292",
+          "forgejo_id": 156,
+          "forgejo_uuid": "0e76a339-9493-4e5e-b20b-4e212759690f",
+          "github_id": 761418960
+        },
+        {
+          "name": "sub2api_2.22.0-custom.2_linux_arm64.tar.gz",
+          "size": 49675849,
+          "sha256": "a047859fd7d385ab46e1c1592293c991fbf86784bba993dab82647e0cd068094",
+          "forgejo_id": 157,
+          "forgejo_uuid": "ab4c2380-75e6-4e72-bab1-42155ff31c17",
+          "github_id": 761418999
+        },
+        {
+          "name": "sub2api_2.22.0-custom.2_windows_amd64.zip",
+          "size": 55448678,
+          "sha256": "2d92c8f1a4efa8c33e790bc2c8364d4286f8977c9325037c993f14e06a71eb1a",
+          "forgejo_id": 158,
+          "forgejo_uuid": "5ae4d657-2484-4afe-8d5e-35ee84a54917",
+          "github_id": 761419089
+        }
+      ]
+    }
+  ]
+}
