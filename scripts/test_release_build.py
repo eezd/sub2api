@@ -26,6 +26,8 @@ class ReleaseBuildTests(unittest.TestCase):
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text('COPY sub2api /app/sub2api\n' if relative == 'Dockerfile.goreleaser' else 'fixture\n')
+        (self.root / 'deploy/docker-entrypoint.sh').chmod(0o755)
+        self.context_modes = None
         self.output = self.root / 'output'
         self.output.mkdir()
         self.events = []
@@ -77,6 +79,10 @@ class ReleaseBuildTests(unittest.TestCase):
                     self.assertEqual(stat.S_IMODE(file.stat().st_mode), 0o444)
         if args[:3] == ('docker', 'context', 'create'):
             self.maybe_fail('context-create', args)
+        if args[:2] == ('skopeo', 'copy'):
+            self.maybe_fail('runtime-export', args)
+        if args[:2] == ('docker', 'load'):
+            self.maybe_fail('runtime-load', args)
         if args[:3] == ('docker', 'buildx', 'create'):
             self.maybe_fail('builder-create', args)
         return '0' if args[:2] == ('docker', 'inspect') else 'fixture'
@@ -87,7 +93,21 @@ class ReleaseBuildTests(unittest.TestCase):
             self.assertIs(kwargs['stdin'], self.archive_output)
             self.maybe_fail('source-copy', args)
         if args[:3] == ['docker', 'buildx', 'build']:
+            context = Path(args[-1])
+            self.context_modes = {name: stat.S_IMODE((context / name).stat().st_mode)
+                                  for name in ('deploy/docker-entrypoint.sh', 'THIRD_PARTY_NOTICES.md')}
             self.maybe_fail('oci-build', args)
+        if args[:2] == ['docker', 'run'] and '-version' in args:
+            output = self.RECORD['version'] + ' ' + self.RECORD['source_sha']
+            if self.failure == 'runtime-wrong-version':
+                output = 'unexpected-version'
+            elif self.failure == 'runtime-wrong-commit':
+                output = self.RECORD['version'] + ' ' + 'b' * 40
+            elif self.failure == 'runtime-timeout':
+                raise subprocess.TimeoutExpired(args, 60)
+            self.assertEqual(kwargs['timeout'], 60)
+            self.assertNotIn('FORGEJO_RELEASE_TOKEN', kwargs['env'])
+            return subprocess.CompletedProcess(args, int(self.failure == 'runtime-start'), stdout=output)
         return subprocess.CompletedProcess(args, int(self.failure == 'candidate-start' and args[:3] == ['docker', 'start', '-a']))
 
     def artifact(self, _container, name, output, *_args):
@@ -138,7 +158,49 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertEqual(len(metadata['packages']), 6)
         self.assertEqual(metadata['verification']['cross_compiled'], ['darwin/amd64', 'darwin/arm64',
                                                                       'linux/arm64', 'windows/amd64', 'windows/arm64'])
-        self.assert_cleanup_complete(include_buildx=True)
+        self.assert_cleanup_complete(include_buildx=True, include_runtime=True)
+
+    def test_image_context_preserves_public_modes_under_private_umask(self):
+        (self.root / 'THIRD_PARTY_NOTICES.md').chmod(0o644)
+        previous = os.umask(0o077)
+        try:
+            self.build()
+        finally:
+            os.umask(previous)
+        self.assertEqual(self.context_modes, {'deploy/docker-entrypoint.sh': 0o755,
+                                              'THIRD_PARTY_NOTICES.md': 0o644})
+
+    def test_entrypoint_mode_is_explicit_in_runtime_dockerfile(self):
+        dockerfile = (Path(__file__).resolve().parents[1] / 'Dockerfile.goreleaser').read_text()
+        self.assertIn('COPY --chmod=0755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh', dockerfile)
+        self.assertNotIn('RUN chmod +x /app/docker-entrypoint.sh', dockerfile)
+
+    def test_final_oci_image_entrypoint_runs_before_metadata_is_written(self):
+        self.build()
+        exported, = [args for kind, args in self.events if kind == 'run' and args[:2] == ('skopeo', 'copy')]
+        self.assertEqual(exported[2:6], ('--override-os', 'linux', '--override-arch', 'amd64'))
+        self.assertIn('oci-archive:' + str(self.output / 'image.oci'), exported)
+        runtime, = [args for kind, args in self.events if kind == 'process' and args[:2] == ('docker', 'run')]
+        self.assertEqual(runtime[runtime.index('--network') + 1], 'none')
+        self.assertNotIn('--entrypoint', runtime)
+        self.assertEqual(runtime[-2:], (self.PREFIX + '-runtime:latest', '-version'))
+        self.assertNotIn('synthetic-publisher-secret', ' '.join(runtime))
+        self.assertTrue((self.output / 'build.json').exists())
+        self.assert_cleanup_complete(include_buildx=True, include_runtime=True)
+
+    def test_final_image_export_load_start_or_identity_failure_blocks_metadata_and_cleans_up(self):
+        for stage in ('runtime-export', 'runtime-load', 'runtime-start', 'runtime-wrong-version',
+                      'runtime-wrong-commit', 'runtime-timeout'):
+            with self.subTest(stage=stage):
+                self.events.clear()
+                self.failure = stage
+                self.archive_output = io.BytesIO(b'fixed source archive')
+                self.archive.stdout = self.archive_output
+                with self.assertRaises((RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired)):
+                    self.build()
+                self.assertFalse((self.output / 'build.json').exists())
+                self.assert_cleanup_complete(include_buildx=True, include_runtime=True)
+                self.assertFalse(self.scratch.exists())
 
     def test_buildx_binds_named_tls_context_and_cleans_builder_before_context(self):
         self.build()
@@ -152,7 +214,7 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertLess(cleaned.index(('docker', 'buildx', 'rm', builder)),
                         cleaned.index(('docker', 'context', 'rm', context)))
 
-    def assert_cleanup_complete(self, *, include_buildx=False, candidate=True):
+    def assert_cleanup_complete(self, *, include_buildx=False, candidate=True, include_runtime=False):
         cleaned = [args for kind, args in self.events if kind == 'cleanup']
         expected = [('docker', 'rm', '-f', '-v', self.PREFIX + '-' + name) for name in ('docker', 'redis', 'postgres')]
         if candidate:
@@ -161,6 +223,9 @@ class ReleaseBuildTests(unittest.TestCase):
         if include_buildx:
             expected = [('docker', 'buildx', 'rm', self.PREFIX + '-oci'),
                         ('docker', 'context', 'rm', self.PREFIX + '-context')] + expected
+        if include_runtime:
+            expected = [('docker', 'rm', '-f', '-v', self.PREFIX + '-runtime'),
+                        ('docker', 'image', 'rm', self.PREFIX + '-runtime:latest')] + expected
         self.assertEqual(cleaned, expected)
         self.assertFalse(any('prune' in args for _, args in self.events))
 

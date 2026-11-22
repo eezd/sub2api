@@ -88,6 +88,27 @@ def wait_for(*command):
     raise RuntimeError(f'Isolated dependency did not become ready: {command[-1]}')
 
 
+def verify_runtime_image(archive, scratch, prefix, version, commit):
+    """Exercise the actual OCI image's default entrypoint, not just its binary."""
+    image, container = prefix + '-runtime:latest', prefix + '-runtime'
+    with ExitStack() as stack:
+        stack.callback(cleanup, 'docker', 'image', 'rm', image)
+        stack.callback(cleanup, 'docker', 'rm', '-f', '-v', container)
+        native = scratch / 'runtime.tar'
+        run('skopeo', 'copy', '--override-os', 'linux', '--override-arch', 'amd64',
+            'oci-archive:' + str(archive), f'docker-archive:{native}:{image}')
+        run('docker', 'load', '--input', str(native))
+        result = subprocess.run([
+            'docker', 'run', '--name', container, '--pull=never', '--network', 'none',
+            '--cpus=2', '--memory=256m', '--pids-limit=128', '--cap-drop=ALL',
+            '--cap-add=CHOWN', '--cap-add=SETUID', '--cap-add=SETGID',
+            '--security-opt=no-new-privileges', image, '-version',
+        ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60, env=child_env())
+        if result.returncode or version not in result.stdout or commit not in result.stdout:
+            print('Runtime image log tail:', repr(result.stdout[-8192:]), flush=True)
+            raise RuntimeError('Final OCI image entrypoint or version check failed')
+
+
 def build(output, record, run_id):
     version, commit = record['version'], record['source_sha']
     prefix = f'sub2api-release-{run_id}'
@@ -172,7 +193,7 @@ def build(output, record, run_id):
             if source.is_dir():
                 shutil.copytree(source, destination)
             else:
-                shutil.copyfile(source, destination)
+                shutil.copy2(source, destination)
         dockerfile = context / 'Dockerfile.goreleaser'
         content = dockerfile.read_text()
         instruction = 'COPY sub2api /app/sub2api'
@@ -196,14 +217,16 @@ def build(output, record, run_id):
         subprocess.run(['docker', 'buildx', 'build', '--builder', builder, '--platform', 'linux/amd64,linux/arm64',
                         '--provenance=false', '--sbom=false', '--file', str(dockerfile), '--tag', f'{IMAGE}:{version}',
                         '--output', f'type=oci,dest={output / "image.oci"}', str(context)], check=True, env=child_env())
+        image = oci_image(output / 'image.oci', version)
+        verify_runtime_image(output / 'image.oci', scratch, prefix, version, commit)
         packages = [{'name': name, 'sha256': sha(output / name)} for name in names(version)]
         (output / 'SHA256SUMS').write_text(''.join(f'{item["sha256"]}  {item["name"]}\n' for item in packages))
         metadata = {key: record[key] for key in ('version', 'source_sha', 'source_branch', 'previous_tag', 'built_at')}
         if record.get('schema') == 5:
             metadata.update({key: record[key] for key in ('schema', 'source_branch_head', 'release_inputs',
                              'control_sha', 'release_run_id', 'release_request_id')})
-        metadata.update(packages=packages, image=oci_image(output / 'image.oci', version), verification={
-            'linux/amd64': 'native: version, health, setup, login and embedded UI',
+        metadata.update(packages=packages, image=image, verification={
+            'linux/amd64': 'native binary: version, health, setup, login and embedded UI; final OCI image: default entrypoint and version',
             'cross_compiled': sorted(set(PLATFORMS) - {'linux/amd64'}),
             'checks': ['frontend', 'backend-unit', 'backend-integration', 'golangci-lint'],
         })
@@ -216,7 +239,8 @@ def cleanup_run(run_id):
     prefix = 'sub2api-release-' + run_id
     cleanup('docker', 'buildx', 'rm', prefix + '-oci')
     cleanup('docker', 'context', 'rm', prefix + '-context')
-    for name in ('build', 'docker', 'redis', 'postgres'):
+    for name in ('runtime', 'build', 'docker', 'redis', 'postgres'):
         cleanup('docker', 'rm', '-f', '-v', prefix + '-' + name)
     cleanup('docker', 'network', 'rm', prefix)
+    cleanup('docker', 'image', 'rm', prefix + '-runtime:latest')
     cleanup('docker', 'image', 'rm', prefix + '-candidate')

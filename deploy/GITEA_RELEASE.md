@@ -48,8 +48,9 @@ Job 使用账号可用的 `docker` 标签和临时目录，不绑定 Runner 名�
 - 本项目保留真实 Testcontainers 集成检查：控制器在本次网络启动独立临时 privileged 测试 DIND，固定 `docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c`，仅用本次匿名数据/证书卷，独立生成 TLS 证书；无父 socket/证书、无宿主端口。privileged DIND 共享内核的风险已获接受，不宣称虚拟机沙箱。
 - 只把测试 daemon 的三个临时客户端证书复制给候选，临时副本文件 0444、子目录 0755，外层 scratch 0700，父证书权限不变。候选连接任务网络别名 `docker:2376`、`/work/test-docker-certs` 和 `TESTCONTAINERS_HOST_OVERRIDE=docker`，不是 Runner 网络的父引擎。
 - 固定源码用 `git archive` / `docker cp` 传入非 root `node` 候选，无 `.git`、发布凭据、父证书、生产 socket 或宿主 bind mount，保留 `--cap-drop=ALL`、`no-new-privileges`。数据库、Redis、网络均为隔离夹具。
-- 保留前端 lint/typecheck/重点测试、后端单元/集成/lint、六包与双架构 OCI、Linux amd64 版本/health/setup/login/内嵌 UI 检查。Linux amd64 是原生运行，另五包是交叉编译；ARM64 OCI 不等于 ARM64 原生运行验收。逐次记录实际 skip 和执行范围，不能声称全部测试均未跳过。
-- 正常异常由控制器 finally 清理，工作流 `always()` 再按本次 run/attempt 精确兜底；只删除确切容器、匿名卷、网络、候选镜像、builder/context 和临时目录。取消不保证进程 finally 执行，因此不能只依赖 Python 栈清理。禁止全局 prune、共享服务重启、Generic 暂存、原件分片、checkpoint 或跨任务缓存。
+- 保留前端 lint/typecheck/重点测试、后端单元/集成/lint、六包与双架构 OCI、Linux amd64 裸二进制版本/health/setup/login/内嵌 UI 检查。另将**最终 OCI 原件**的 Linux amd64 分支转换为本任务 Docker archive，导入既有非生产 TLS 引擎，以镜像默认 ENTRYPOINT、无网络及有限资源运行 `-version`，核对版本和完整源码 SHA；不覆盖入口或直接调用二进制，不重建、也不提前推 Registry。失败不得生成新完成元数据。该检查覆盖入口权限/降权路径，但不是最终镜像的数据库、health 或旧库升级自动验收；既有裸二进制集成门禁继续保留。另五包是交叉编译；ARM64 OCI 不等于 ARM64 原生运行验收。逐次记录实际 skip 和执行范围，不能声称全部测试均未跳过。
+- 发布控制保持 `umask 077` 保护凭据和临时目录；只为公开镜像上下文保留源码文件 mode，Dockerfile 对入口脚本显式 `COPY --chmod=0755`。不能依赖 `chmod +x` 将0600修成0755，否则降权后 shell 无法读取0711脚本。回归在077下检查上下文权限、最终镜像默认入口以及失败阻断。
+- 正常异常由控制器 finally 清理，工作流 `always()` 再按本次 run/attempt 精确兜底；只删除确切容器（含最终镜像检查容器）、匿名卷、网络、候选及检查镜像、builder/context 和临时目录。取消不保证进程 finally 执行，因此不能只依赖 Python 栈清理。禁止全局 prune、共享服务重启、Generic 暂存、原件分片、checkpoint 或跨任务缓存。
 
 ## 公开产物和完成门禁
 

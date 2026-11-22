@@ -88,7 +88,9 @@ class DeliveryCredentialsTests(unittest.TestCase):
         with patch('release_build.cleanup') as cleanup:
             cleanup_run('100-2')
             cleanup_run('100-2')
-        self.assertEqual(cleanup.call_count, 16)
+        self.assertEqual(cleanup.call_count, 20)
+        cleanup.assert_any_call('docker', 'rm', '-f', '-v', 'sub2api-release-100-2-runtime')
+        cleanup.assert_any_call('docker', 'image', 'rm', 'sub2api-release-100-2-runtime:latest')
         for call in cleanup.call_args_list:
             args = call.args
             self.assertTrue(any('sub2api-release-100-2' in item for item in args))
