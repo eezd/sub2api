@@ -1,0 +1,47 @@
+name: Manual GitHub sync (Sub2API)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sub2api-delivery
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    runs-on: docker
+    container:
+      image: node:24-trixie
+    env:
+      CONTROL_REF: ${{ forgejo.ref }}
+      CI_RUN_ID: ${{ forgejo.run_id }}
+      CI_RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+    steps:
+      - name: Check out trusted control code
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ forgejo.sha }}
+          persist-credentials: false
+      - name: Install sync tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3 git skopeo ca-certificates curl
+          use_lfs=$(python3 -c "import runpy; print(runpy.run_path('scripts/sync-github.py')['USE_LFS'])")
+          if [ "$use_lfs" = true ]; then
+            apt-get install -y --no-install-recommends git-lfs
+          fi
+      - name: Sync verified originals to GitHub and GHCR
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          FORGEJO_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: python3 scripts/sync-github.py
+      - name: Remove this run's authentication files
+        if: ${{ always() }}
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 scripts/sync-github.py --cleanup

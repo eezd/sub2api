@@ -679,6 +679,11 @@ type ClaudeUsage struct {
 	CacheCreation5mTokens    int // 5分钟缓存创建token（来自嵌套 cache_creation 对象）
 	CacheCreation1hTokens    int // 1小时缓存创建token（来自嵌套 cache_creation 对象）
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
+
+	cacheCreationInputTokensPresent     bool
+	cacheCreationInputTokensFromDetails bool
+	promptTotalTokens                   int
+	promptTotalPresent                  bool
 }
 
 // ForwardResult 转发结果
@@ -688,7 +693,10 @@ type AudioUsage struct {
 }
 
 type ForwardResult struct {
-	RequestID string
+	// Only a successfully completed Claude response can receive the opt-in floor.
+	ProbePenaltyEligible bool
+	ProbePenalty         *ProbePenaltyReceipt
+	RequestID            string
 	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。
 	UpstreamHeaders http.Header
 	Usage           ClaudeUsage
@@ -1454,7 +1462,7 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 			}
 		}
 	}
-	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build grok responses request: %w", err)
 	}

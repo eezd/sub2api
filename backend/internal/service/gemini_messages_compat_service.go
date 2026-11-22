@@ -615,7 +615,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 			if err != nil {
 				return nil, "", err
 			}
@@ -667,7 +667,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				wrapped["request"] = inner
 				wrappedBytes, _ := json.Marshal(wrapped)
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, wrappedBytes), http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
 					return nil, "", err
 				}
@@ -689,7 +689,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 
 				restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 				if err != nil {
 					return nil, "", err
 				}
@@ -712,7 +712,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1192,7 +1192,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1239,7 +1239,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				wrapped["request"] = inner
 				wrappedBytes, _ := json.Marshal(wrapped)
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, wrappedBytes), http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
 					return nil, "", err
 				}
@@ -1260,7 +1260,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					return nil, "", err
 				}
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 				if err != nil {
 					return nil, "", err
 				}
@@ -1279,7 +1279,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 			if err != nil {
 				return nil, "", err
 			}
@@ -3705,6 +3705,34 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 			"role":  gRole,
 			"parts": parts,
 		})
+	}
+	// Gemini/Vertex 拒收「以 functionResponse 开头、后面还跟着其它 part」的最后一个 turn，
+	// 报错文案是误导性的 "Requests ending with a model turn are not supported."。
+	// 客户端在工具结果后紧跟一条 user 文本时（例如 ACP nudge），CC→Claude 的
+	// mergeConsecutiveMessages 会把它并进同一个 user 消息，这里再把尾部的非
+	// functionResponse part 拆成独立的一轮 user，语义顺序不变。
+	if n := len(out); n > 0 {
+		if last, ok := out[n-1].(map[string]any); ok {
+			if parts, ok := last["parts"].([]any); ok {
+				lastFR := -1
+				for i, p := range parts {
+					pm, ok := p.(map[string]any)
+					if !ok {
+						continue
+					}
+					if _, isFR := pm["functionResponse"]; isFR {
+						lastFR = i
+					}
+				}
+				if lastFR >= 0 && lastFR < len(parts)-1 {
+					last["parts"] = parts[:lastFR+1]
+					out = append(out, map[string]any{
+						"role":  "user",
+						"parts": parts[lastFR+1:],
+					})
+				}
+			}
+		}
 	}
 	return out, nil
 }

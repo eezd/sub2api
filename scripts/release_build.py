@@ -1,6 +1,8 @@
 """Build on the dedicated release worker; candidate stdout and files are untrusted."""
 
+from delivery_ci import child_env
 from contextlib import ExitStack
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +22,7 @@ TEST_DOCKER_IMAGE = 'docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e0
 
 
 def run(*args, **kwargs):
+    kwargs.setdefault('env', child_env())
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
@@ -54,14 +57,14 @@ def oci_image(path, version):
 
 
 def cleanup(*args):
-    result = subprocess.run(args, check=False, stdout=subprocess.DEVNULL)
+    result = subprocess.run(args, check=False, stdout=subprocess.DEVNULL, env=child_env())
     if result.returncode:
         print('Release worker could not clean up:', ' '.join(args[:3]), flush=True)
 
 
 def copy_artifact(container, name, output, limit=LIMIT):
     # Copy just one regular file, never extract candidate-controlled tar paths on the worker.
-    with subprocess.Popen(['docker', 'cp', f'{container}:/work/output/{name}', '-'], stdout=subprocess.PIPE) as copy:
+    with subprocess.Popen(['docker', 'cp', f'{container}:/work/output/{name}', '-'], stdout=subprocess.PIPE, env=child_env()) as copy:
         try:
             with tarfile.open(fileobj=copy.stdout, mode='r|') as stream:
                 entry = stream.next()
@@ -79,7 +82,7 @@ def copy_artifact(container, name, output, limit=LIMIT):
 
 def wait_for(*command):
     for _ in range(60):
-        if not subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        if not subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env()).returncode:
             return
         time.sleep(1)
     raise RuntimeError(f'Isolated dependency did not become ready: {command[-1]}')
@@ -89,13 +92,13 @@ def build(output, record, run_id):
     version, commit = record['version'], record['source_sha']
     prefix = f'sub2api-release-{run_id}'
     with ExitStack() as stack:
-        scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix=prefix)))
+        scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix=prefix, dir=output)))
         builder_context = scratch / 'builder'
         builder_context.mkdir()
         shutil.copyfile(ROOT / 'deploy/Dockerfile.release-builder', builder_context / 'Dockerfile')
         builder_image = prefix + '-candidate'
         stack.callback(cleanup, 'docker', 'image', 'rm', builder_image)
-        subprocess.run(['docker', 'build', '-t', builder_image, str(builder_context)], check=True)
+        subprocess.run(['docker', 'build', '-t', builder_image, str(builder_context)], check=True, env=child_env())
         stack.callback(cleanup, 'docker', 'network', 'rm', prefix)
         run('docker', 'network', 'create', prefix)
 
@@ -139,9 +142,9 @@ def build(output, record, run_id):
         run('docker', 'cp', str(ROOT / 'scripts/build-release.sh'), container + ':/work/build.sh')
         run('docker', 'cp', str(ROOT / 'scripts/package-release.sh'), container + ':/work/package.sh')
         # Extract the candidate only inside its container; it sees no .git, runner filesystem or credentials.
-        with subprocess.Popen(['git', '-C', str(ROOT), 'archive', commit], stdout=subprocess.PIPE) as archive:
+        with subprocess.Popen(['git', '-C', str(ROOT), 'archive', commit], stdout=subprocess.PIPE, env=child_env()) as archive:
             try:
-                subprocess.run(['docker', 'cp', '-', container + ':/work/source'], stdin=archive.stdout, check=True)
+                subprocess.run(['docker', 'cp', '-', container + ':/work/source'], stdin=archive.stdout, check=True, env=child_env())
             finally:
                 archive.stdout.close()
             if archive.wait():
@@ -150,7 +153,7 @@ def build(output, record, run_id):
         # The entrypoint file it receives is trusted and does not change runner files.
         # Candidate output is not trusted workflow-command input.
         with (scratch / 'candidate.log').open('wb') as log:
-            status = subprocess.run(['docker', 'start', '-a', container], stdout=log, stderr=subprocess.STDOUT)
+            status = subprocess.run(['docker', 'start', '-a', container], stdout=log, stderr=subprocess.STDOUT, env=child_env())
         if status.returncode or run('docker', 'inspect', '-f', '{{.State.ExitCode}}', container) != '0':
             # repr keeps all control characters and newlines out of the Actions command stream.
             with (scratch / 'candidate.log').open('rb') as log:
@@ -192,13 +195,28 @@ def build(output, record, run_id):
         run('docker', 'buildx', 'create', '--name', builder, '--driver', 'docker-container', docker_context)
         subprocess.run(['docker', 'buildx', 'build', '--builder', builder, '--platform', 'linux/amd64,linux/arm64',
                         '--provenance=false', '--sbom=false', '--file', str(dockerfile), '--tag', f'{IMAGE}:{version}',
-                        '--output', f'type=oci,dest={output / "image.oci"}', str(context)], check=True)
+                        '--output', f'type=oci,dest={output / "image.oci"}', str(context)], check=True, env=child_env())
         packages = [{'name': name, 'sha256': sha(output / name)} for name in names(version)]
         (output / 'SHA256SUMS').write_text(''.join(f'{item["sha256"]}  {item["name"]}\n' for item in packages))
         metadata = {key: record[key] for key in ('version', 'source_sha', 'source_branch', 'previous_tag', 'built_at')}
+        if record.get('schema') == 5:
+            metadata.update({key: record[key] for key in ('schema', 'source_branch_head', 'release_inputs',
+                             'control_sha', 'release_run_id', 'release_request_id')})
         metadata.update(packages=packages, image=oci_image(output / 'image.oci', version), verification={
             'linux/amd64': 'native: version, health, setup, login and embedded UI',
             'cross_compiled': sorted(set(PLATFORMS) - {'linux/amd64'}),
             'checks': ['frontend', 'backend-unit', 'backend-integration', 'golangci-lint'],
         })
         (output / 'build.json').write_text(json.dumps(metadata, sort_keys=True, indent=2) + '\n')
+
+
+def cleanup_run(run_id):
+    if not re.fullmatch(r'[1-9][0-9]*-[1-9][0-9]*', run_id):
+        raise ValueError('Invalid cleanup run/attempt')
+    prefix = 'sub2api-release-' + run_id
+    cleanup('docker', 'buildx', 'rm', prefix + '-oci')
+    cleanup('docker', 'context', 'rm', prefix + '-context')
+    for name in ('build', 'docker', 'redis', 'postgres'):
+        cleanup('docker', 'rm', '-f', '-v', prefix + '-' + name)
+    cleanup('docker', 'network', 'rm', prefix)
+    cleanup('docker', 'image', 'rm', prefix + '-candidate')

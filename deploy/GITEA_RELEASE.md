@@ -1,73 +1,95 @@
 # Forgejo 手动发布与 GitHub 分发
 
-切换验收后，Forgejo 是唯一主仓库。`main` 托管经过审查的稳定代码和发布控制，`dev` 用于日常开发。GitHub `production`、历史发布和镜像保留用于公开分发。普通推送不触发发布、部署或同步。本文件沿用旧文件名以保持既有链接。
+Forgejo 是唯一主仓库。受保护的 `main` 承载稳定源码与可信发布控制，`dev` 用于开发；GitHub 保留历史公开分发。普通 push 不触发构建、发布、部署或同步。本文件沿用旧文件名以保持既有链接。
 
-## 本机编译与 systemd
+## 入口和安装状态
 
-本机流程不经过 Forgejo。按[贡献指南](../CONTRIBUTING.md#按改动范围验证)先构建前端，再以 `go build -tags embed` 从本地源码编译候选二进制。仅在授权的目标环境使用 [`sub2api.service`](sub2api.service) 部署；该 unit 从 `/opt/sub2api/sub2api` 启动服务，配置和数据边界见[原生部署说明](README.md#binary-installation)。本仓库不恢复已撤下的常驻开发 unit；本地试用须用隔离的配置、PostgreSQL、Redis 与数据目录。构建、启动及数据库迁移不属于发版或同步流程。
+| Forgejo Actions 页面 | 输入 | 职责 |
+| --- | --- | --- |
+| [Manual release](../.forgejo/workflows/release.yml) | `source_branch` 默认 `main`；`source_sha` 可选完整 40 位 SHA | 从固定来源执行检查、构建六平台包并发布 Forgejo Release/双架构镜像 |
+| [Manual GitHub sync](../.forgejo/workflows/sync-github.yml) | 无自定义输入 | 将获准的 `main`、已验收正式 TAG、原件和镜像补齐到 GitHub/GHCR，不重新构建 |
 
-## Forgejo 发布
+两个入口都只能从可信 `main` 手动启动，控制代码 checkout 到本次完整 `forgejo.sha`。来源分支只提供候选源码，不能替换工作流或控制脚本；两个入口共用静态 `sub2api-delivery` concurrency group，`cancel-in-progress: false`。不提供根目录发布/同步 CLI，也不在工作流内再次 dispatch。没有新增 dev→main 自动提升入口。
 
-目标实例 `https://git.134333.xyz` 已确认为 Forgejo `17.0.2+gitea-1.22.0`。本次仅适配本地代码，不代表已在实例启用、运行或验收新发布。
+**本轮状态是本地适配，不是远端安装完成。** 上一次实际验收的远端结果仍为 `v2.22.0-custom.3`；本地已集成 `v2.23.1` 正式 TAG 后的固定 production，但尚未提交或推送。发布前须由获授权的维护者把来源提交和必要控制 pin/工作流变更交付到可信 `main`，回读完整 SHA。仅修改本地文件不会改变远端执行内容。当前状态、固定来源和证据入口见本地 `CONTEXT.md`、`MEMORY.md`。
 
-[手动发布工作流](../.forgejo/workflows/sub2api-manual-release.yml)仅接受 `source_branch`、`source_sha`、`request_id` 三个必填字符串，只能从可信 `main` 手动调度。控制代码固定到本次 `main` 的完整 SHA；来源分支只提供候选源码，不提供工作流或发布脚本。旧 Gitea 定义移入[非扫描归档](../.gitea/workflow-archive/sub2api-manual-release.yml)，旧 GitHub 工作流保留于[历史归档](../.github/workflow-archive/legacy-github-actions/)，不删除历史。
+启用或更新前，核对仓库保护、手动触发主体、工作流扫描路径和所有可触发引用，避免历史 `.github/workflows` / `.gitea/workflows` 回退扫描。旧 Gitea 定义和 GitHub 工作流保留在非扫描归档；不恢复 push/PR/TAG 自动触发，不启用 GitHub Actions。切换、首次正式发布及真实同步各需相应授权，不修改共享实例或 Runner。
 
-启用前，依次完成以下验收：
+## 固定来源和版本编号
 
-1. 审核控制代码后由维护者推进受保护的 `main`，限制能修改或触发工作流的主体。`main` 条件不能代替仓库权限。
-2. 在仓库 Actions 关闭时核对工作流扫描路径和所有可触发引用，防止旧分支或历史 TAG 中的 `.github/workflows` / `.gitea/workflows` 被回退扫描。仅移动当前工作树不能证明历史引用安全；未验收前不启用 Actions，不擅改共享实例设置。
-3. 只读盘点历史 Release、TAG、附件、Registry 版本及旧任务。GitHub 原有 `v*-custom.*` 发布保持原始格式、正文和原件，不伪造 `build.json` 或新完成标记，也不作为新格式的发布基线。旧 Generic Package 暂存、宿主目录和原件恢复点不是新流程的输入；旧方案残留需单独核实和授权处理。
-4. 确认以下 Runner、TLS 连接、任务级隔离、凭据及上传条件；启用 Actions 及首次正式发布仍须授权。已有适用的平台并发证据可复用，不重复调度平台探针。
+`scripts/resolve-release.py` 在任务开始执行时读取并冻结远端来源分支 HEAD，生成规范化输入、请求 UUID、候选/控制完整 SHA 和 `CI_RUN_ID`/`CI_RUN_ATTEMPT` 的 `RELEASE_CONTEXT`；发布控制器随后验证可选 SHA 从冻结的分支 HEAD 可达。网页不接收版本号、请求 ID 或控制 SHA；排队前看到的分支 HEAD 和预估 N 都不是最终结果。应填写已检查、已交付的完整 SHA，任务中再核对冻结结果。
 
-### 共享 Runner 与隔离构建
+本项目始终使用 `v<已集成 ranxi2001 上游正式版本>-custom.N`，不使用通用 Skill 的日期-SHA，不从本地 `VERSION` 或自有上一版猜测上游基础。当前本地 pin：
 
-Job 使用账号可用的 `docker` 标签、`node:24-trixie` job 镜像和临时目录，不指定 Runner 名称、ID 或项目专属宿主挂载。已核实平台为 Runner v13.2.2、Forgejo 17.0.2 和专用 Docker 29.10.0 TLS DIND；Runner 不挂宿主 Docker socket，不修改或注册共享 Runner。
+- 正式 TAG：`v2.23.1`；注解 TAG 对象：`3297a4f4547076ed5c5b21e0471a12490985fb80`。
+- 剥离后的正式 commit：`00e00796080c632188cf9df7912050b144a1a44f`；候选必须包含该祖先。
+- 实际集成 production：`04478a2e1a658c03c8632fc79e28255ef354c094`，TAG 后额外 198 个提交，不等于恰好官方 TAG。
 
-- 可信控制任务沿用 Runner 注入的 `DOCKER_HOST=tcp://docker:2376`、`DOCKER_TLS_VERIFY=1`、`DOCKER_CERT_PATH=/certs/client`。控制器要求显式远程 TLS 连接、证书路径和原生 Linux amd64 引擎；拒绝覆盖连接的 `DOCKER_CONTEXT`，不回退本地 socket、默认 context 或明文 `2375`。不再使用 `SUB2API_BUILD_DOCKER_IP` / `SUB2API_TEST_DOCKER_IP`。Buildx 从该连接创建本次具名 Docker context，再将独立 builder 绑定到它；构建结束或异常均精确清理 builder 和 context，不改父证书或共享 daemon。
-- 控制器在本次专属网络中启动临时 privileged 测试服务，固定官方 `docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c`。它仅使用本次匿名数据卷和证书卷、自行生成独立 TLS 证书，不挂父 daemon 的 socket 或证书、不映射宿主端口、不关闭 TLS。privileged DIND 共享宿主内核的风险已获接受，不声称这是虚拟机隔离。
-- 先通过 `docker exec <测试服务> docker --host unix:///var/run/docker.sock info` 等待测试 daemon 就绪，再将其 `/certs/client` 中的 `ca.pem`、`cert.pem`、`key.pem` 复制到 0700 临时 scratch 内，不输出或解析证书内容。仅对本次临时副本设置文件 0444、子目录 0755，使候选的非 root `node` 用户可读；父证书权限不变。候选收到的路径为 `/work/test-docker-certs`，以及 `DOCKER_HOST=tcp://docker:2376`、`DOCKER_TLS_VERIFY=1`、`DOCKER_CERT_PATH=/work/test-docker-certs`、`TESTCONTAINERS_HOST_OVERRIDE=docker`。此处 `docker` 网络别名只解析本次测试引擎，与 Runner 所在网络的同名父构建引擎分离，候选拿不到父证书。
-- 固定候选 SHA 用 `git archive` 经管道和 `docker cp` 传入候选容器，无宿主 bind mount、`.git`、令牌或发布控制目录。候选仍使用 `--cap-drop=ALL`、`no-new-privileges`，只接入本次测试网络及 PostgreSQL/Redis 夹具。保留前后端检查、集成测试和 Linux amd64 冒烟；只有通过这些检查的六平台包及由相同 Linux 二进制生成的 OCI 才进入发布阶段。源码或证书复制失败立即退出；所有路径均按本次精确名称清理容器及匿名卷、网络、构建镜像和临时目录，不使用全局 prune、跨任务缓存或 Generic 暂存。
-- 原生运行验收仅覆盖 Linux amd64；其余五个包是交叉编译，不能声称已原生运行。双架构 OCI 构建能力仍按实际 Buildx 执行结果记录，不把交叉编译当作 ARM64 运行验收。
+串行控制器按同基础版本的远端 TAG/Release **数字**最大 N 加一，无记录时从 1 开始；失败 TAG 和历史 TAG 保留并占号。解析器不预留编号，发布也不自动更新上游。未来明确同步新基础时，在同一轮更新 `scripts/manual-release.py` 的 pin、测试及文档，核实最终候选祖先关系。
 
-`/docker/git/runner/README.md` 已记录同平台 AlphaPulse 的 TLS DIND、六包/双架构发布及并发恢复证据。Forgejo 17.0.2 的并发回执已核对：A13 占用、B14 等待，取消 A13 后 B14 约 3.42 秒继续成功，无 Runner 重启或额外唤醒任务；可复用这些适用的平台证据。本次 Sub2API 适配只做离线 mock 回归，尚未真实运行 Sub2API 新发布、候选测试 DIND 或网络隔离验收；不能将 AlphaPulse 的结果当作本项目发布成功。
+新 `build.json` 使用 schema 5，绑定来源分支 HEAD、规范化输入、完整 source/control SHA、请求和 run/attempt；附加 TAG、完成标记与原始 build 字节哈希形成交付证明。已完成旧项目记录可能没有 schema 字段，按其真实 TAG/build/marker 证明严格读取，不改写成新 schema。缺少新六包/完成证据的历史导入不冒认、不伪造 marker、不重建原件。
 
-保留独立 `python3 scripts/manual-release.py --verify-only` 供受控隔离环境构建验证，不另加工作流输入。它需要固定 `TRUSTED_SHA`、`RELEASE_REF=refs/heads/main`、`SOURCE_BRANCH`、完整 `SOURCE_SHA`、UUID `REQUEST_ID`、`RELEASE_RUN_ID=<run-id>-<attempt>` 及上述 Runner TLS Docker 环境；checkout 必须已有完整历史和来源分支的远端引用。此模式只用 `v2.22.0-custom.1` 作为临时检查包名，不读取或占用远端编号，不表示已分配正式版本；同样检查固定上游祖先。它不访问发布 API，不需发布令牌，不创建 TAG、Release 或镜像，但会拉取依赖、创建临时容器并执行候选源码，不能在生产环境试跑。
+## 显式认证及临时目录
 
-### 正式发布、幂等与失败重建
+| 入口 | 仓库 Secret | 仅该控制步骤使用的环境变量 |
+| --- | --- | --- |
+| Manual release | `RELEASE_TOKEN` | `FORGEJO_RELEASE_TOKEN` |
+| Manual GitHub sync | `RELEASE_TOKEN`、`MIRROR_TOKEN` | `FORGEJO_TOKEN`、`GITHUB_TOKEN` |
 
-使用 `./release.sh <远端分支>`。客户端优先使用非空 `FORGEJO_TOKEN` 环境变量；未设置或为空时，仅按调用用户的 `HOME` 自动读取 `~/.config/forgejo/token`（root 对应 `/root/.config/forgejo/token`），按 UTF-8 纯文本去掉首尾空白。文件置于仓库外并限制为本人读写（如 `chmod 600`）；缺失、为空、不可读或编码错误时在任何 API 请求前失败，不输出凭据，不扫描其他配置。此本地回退不替代 Actions Secret；同步客户端对两个 Token 分别按下述规则取值。
+Token 须分别具有确切目标仓库/API/包权限；Secret 名不能使用保留前缀。仅校验名称不证明权限。缺少显式 Secret 应在任何远端写入前失败。不要把发布 Token 配置为候选构建环境。
 
-客户端读取远端完整 SHA，只调度一次可信 `main`，不预先分配版本号，也不增加 version 输入。dispatch 请求体使用 `return_run_info: true`，响应全局 `id` 用于 API 轮询、`run_number` 用于网页链接。排队时其他任务可能先占用编号；本次成功后客户端分页查找该完整 SHA 唯一对应的已完成正式 custom Release，核对 TAG 的完整 SHA、build/完成标记的版本与完整 SHA、原始 build 字节哈希，输出实际最终版本。网络中断、超时或响应不明时按打印的请求 ID 核查，不重复调度。脚本不部署、不同步 GitHub。
+控制器在 0700 临时目录内生成 0600 的精确 HTTPS 仓库 Git 认证和 Registry 配置，Registry 登录经 stdin；Git 子进程不继承 API Token。隔离 HOME、Git 全局配置和 XDG，不读取宿主 `~/.config`、Git helper、Registry 登录文件，不使用本地文件锁作为 CI 串行替代。正常、失败及取消路径均清理本次认证和任务资源；日志不得输出 Token、认证文件或 TLS 私钥。认证目录不是跨 Runner 缓存、恢复点或持久凭据。
 
-本项目版本固定采用 `v<已集成 ranxi2001 正式版本>-custom.N`，不使用 git-init 通用的日期-SHA 名称，也不从本地 `VERSION` 文件推断基础。当前控制器明确固定官方 `v2.22.0`，其注解 TAG 对象为 `7089c11c106eb00726a6d4a36a3d04eb069f92c8`、剥离后的 commit 为 `4ba33f8713cbf6c6406e0f2639ffcc2ef1e31c87`。固定来源 SHA 必须包含该 commit 祖先；已核实本次集成还包含 tag 后 production `701612f6e9f7b697eb36397b9fb49bf7324e56a1`（54 个额外提交），不能把标签之后的集成说成恰好官方 tag。下次明确同步上游时，核实正式 tag 和集成祖先后再更新 `scripts/manual-release.py` 的 pin；发布命令本身不获取或合并新上游。
+## Runner 与真实构建隔离
 
-串行控制器读取远端 TAG 和 Release，在同一基础版本内按 custom 后缀**数字**最大值加一（无记录时为 1），其他基础不参与。失败 TAG 保留并消耗编号，不复用失败 N、不强推。历史导入的 custom TAG/Release 同样占号，但没有新 `build.json`/完成标记，不会因此被认领为新流程已验收版本或发布基线。
+Job 使用账号可用的 `docker` 标签和临时目录，不绑定 Runner 名称/ID，不注册或改造共享 Runner。已核实平台为 Forgejo 17.0.2、Runner v13.2.2 和专用 Docker 29.10.0 TLS DIND；既有平台证据不能代替本轮新工作流验收。
 
-工作流仓库 secret 名为合法的 `RELEASE_TOKEN`，仅发布步骤映射成 `FORGEJO_RELEASE_TOKEN`。凭据需有目标已确认公开仓库的代码/Release/TAG 写入、用户身份读取和该命名空间包读写权限，并核实 CDN、附件及 Registry 限制；不硬编码全局凭据名，不需要暂存组织或 Generic Package 权限。候选构建不接收这些凭据。正式发布仍显式核对仓库为已确认的公开 `eezd/sub2api` 且当前令牌有写权限；仓库公开不证明 Registry 包可匿名拉取，后者须独立验收。
+- 可信控制任务沿用 Runner 的 `DOCKER_HOST=tcp://docker:2376`、`DOCKER_TLS_VERIFY=1`、`DOCKER_CERT_PATH=/certs/client`。要求原生 Linux amd64 引擎；不覆盖为明文 `2375`、本地 socket、默认 context 或 `DOCKER_CONTEXT`。Buildx 使用本任务具名 context/builder，精确清理，不改父证书或共享 daemon。
+- 本项目保留真实 Testcontainers 集成检查：控制器在本次网络启动独立临时 privileged 测试 DIND，固定 `docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c`，仅用本次匿名数据/证书卷，独立生成 TLS 证书；无父 socket/证书、无宿主端口。privileged DIND 共享内核的风险已获接受，不宣称虚拟机沙箱。
+- 只把测试 daemon 的三个临时客户端证书复制给候选，临时副本文件 0444、子目录 0755，外层 scratch 0700，父证书权限不变。候选连接任务网络别名 `docker:2376`、`/work/test-docker-certs` 和 `TESTCONTAINERS_HOST_OVERRIDE=docker`，不是 Runner 网络的父引擎。
+- 固定源码用 `git archive` / `docker cp` 传入非 root `node` 候选，无 `.git`、发布凭据、父证书、生产 socket 或宿主 bind mount，保留 `--cap-drop=ALL`、`no-new-privileges`。数据库、Redis、网络均为隔离夹具。
+- 保留前端 lint/typecheck/重点测试、后端单元/集成/lint、六包与双架构 OCI、Linux amd64 版本/health/setup/login/内嵌 UI 检查。Linux amd64 是原生运行，另五包是交叉编译；ARM64 OCI 不等于 ARM64 原生运行验收。逐次记录实际 skip 和执行范围，不能声称全部测试均未跳过。
+- 正常异常由控制器 finally 清理，工作流 `always()` 再按本次 run/attempt 精确兜底；只删除确切容器、匿名卷、网络、候选镜像、builder/context 和临时目录。取消不保证进程 finally 执行，因此不能只依赖 Python 栈清理。禁止全局 prune、共享服务重启、Generic 暂存、原件分片、checkpoint 或跨任务缓存。
 
-发布六个 Linux/macOS/Windows × amd64/arm64 安装包、`SHA256SUMS`、`build.json` 和 Linux amd64/arm64 OCI 版本镜像，仅写版本 TAG，不写 `latest`。完成标记 `release-complete.json` 最后上传，绑定原始 `build.json` 的 SHA256、版本与源码 SHA。正式发布必须非草稿、非预发布，附件集合、全部包哈希、注解 TAG 的完整 SHA、镜像索引及两平台摘要均一致。新格式基线按同来源分支的已完成祖先 BFS 最近距离选择，再按完成时间降序和 TAG 排序；没有同分支记录才使用 `init`，已有记录却均不可达则停止。
+## 公开产物和完成门禁
 
-- 仓库串行声明为固定 concurrency group、`cancel-in-progress: false`；上述同平台实际并发恢复证据可复用。平台或并发配置变化后须重新核实，不能只以 YAML 或本地 mock 声称互斥已验证。
-- 同一完整 SHA 已有新流程完成版时，验证后复用原版本，即使来源分支改变也不新增 N、不改正文或分支，不写入、不覆盖、不重建；不能只比 SHA 前缀。损坏的完成标记不按 unfinished 降级；完成证据冲突、归属不明或冲突状态立即停止。
-- 不保存 Generic/staging 包、宿主持久目录、原件分片或 checkpoint。同一完整 SHA 的未完成版仍有 Release/镜像残留时，必须先确认原任务终止且未成功，验证注解 TAG 中的版本、源码 SHA、来源分支、请求 ID、可信控制 SHA 与原 Actions run 一致，并核对 Release/镜像的创建主体。清理前分页核对该仓库该工作流所有 run；除本次外任何非终止态、缺少本次记录、分页重复或身份不明都停止，不删除。
-- 仅在上述证据充分且没有完成标记时，删除该版本精确 Release（含附件）和该容器镜像的确切版本，回读确认清理结果；同 SHA 注解 TAG 保留，不碰其他 TAG 或 `latest`。DELETE 响应不明即停，不自动重放；身份无法可靠确认时由维护者另行核实和授权精确清理。
-- 清理后保留旧 TAG，使用**新的 N** 在新临时目录从原完整 SHA 全量构建，不恢复或补传上一轮原件。仅剩失败 TAG、已无 Release/镜像残留时只占号，不重复删除；其他源码的未完成版本不清理、不阻塞修复后的新 SHA。陌生身份、仍活跃的原任务或完成证据冲突不能盲删。原件丢失不是成功证据。原 SHA 已不在来源分支可达历史时停止。若分支已推进，`release.sh <分支>` 会读取新顶端；恢复旧 SHA 应手动调度相同工作流，仍只填三个字符串并使用新请求 ID。
+Forgejo 正式版本包含 Linux/macOS/Windows × amd64/arm64 六个程序包、`SHA256SUMS`、`build.json`，以及最后上传的 `release-complete.json`，共 **9 个附件**。包集合、大小、哈希、TAG 完整 SHA、build 原始字节哈希和双架构二进制必须一致。
 
-本地离线回归：
+新 Forgejo 镜像按以下顺序发布：先 `<version>-amd64` / `<version>-arm64` 子镜像并保留摘要，再 index-only 发布 `<version>`。主索引必须恰好指向这两个平台及其原始字节摘要；Registry 内 `sha256:…` 子清单是正常内容身份，不因名称不易读而删除历史摘要条目。旧完成版本不补架构标签、不改写版本产物。
+
+认证上传后，使用**独立空 authfile、临时 HOME/XDG** 再匿名验收顶层索引及两个架构子清单原始摘要。两种验收都成功才能转正式；完成标记最后写入并回读。仓库公开、软件包可见性字段、OCI source label、附件非空或 API 认证成功都不能代替匿名读取。失败保留草稿，明确“上传完成但公开分发受阻”，不写完成标记或推进 `latest`。
+
+完成标记回读后，仅 main 请求且实际发布或复用记录也来自 main 时，依据已验收 `main` 版本源码祖先关系维护 `latest`；dev 请求或 dev 来源记录不维护此别名，历史重跑不能使其回退，main 分叉或未知历史别名停止核对，不自动认领。Forgejo `latest` 使用已验证子清单的 index-only 更新；GitHub/GHCR `latest` 由独立同步入口处理。不创建 `latest` Git TAG，也不恢复旧的主/次版本滚动别名。
+
+## 幂等、恢复和未知结果
+
+- 同一完整 SHA 已有完成版时，只验证复用原版本，不新增 N、不改版本正文/分支/产物；完成标记损坏不降级为 unfinished。多个完成证据冲突立即停止。可按当前规则检查受控别名，但不是重写完成版本。
+- 不完成旧流程残留前，先核对原注解 TAG、源码/控制 SHA、请求、原 run/attempt 及创建主体，旧 run 已终止且没有其他活跃写入。新旧事件严格匹配各自原工作流；不能把旧三输入事件当作新 schema 5 来源。
+- **先构建并验收替代原件，再精确清理未完成版本。** 构建前后、删除前比较稳定快照：Release/附件稳定 ID、名称/类型/大小、正文/状态、TAG 对象及剥离 SHA、原始元数据哈希、包 ID 和镜像摘要。下载统计及附件顺序不作为稳定身份；真实变更或归属不明则零删除。
+- 只删除已证明归属的确切 Release/镜像版本并回读；包含新流程部分架构标签时也要逐个核对，不自动删除未知标签。失败 TAG 保留，新 N 从原完整 SHA 全量重建，不恢复旧原件。仅剩失败 TAG 时只占号，其他源码的残留不擅自清理。
+- DELETE 结果未知、仍有写入、已有完成证据时停止，不重放、不全包删除。网页/API 超时先按请求 UUID、全局 run ID/attempt、源码/控制 SHA 和产物核对唯一任务，不额外 dispatch 或自动重跑。
+
+## 独立 Manual GitHub sync
+
+操作者另行启动无输入的同步工作流，发布任务不串联它。范围仅为获准公开的 `main` 及其可达、已验收正式 TAG/Release/镜像，不公开 `dev`，不更新 GitHub `production`，不强推、不改写既有分发。同步前检查 GitHub Actions 确实关闭、目标权限和 Git/Registry 传输认证，并在任何目标写入前只读预检 main 祖先选版与两端已有 `latest`；未知别名或 main 分叉立即停止，真正更新前再次核验。API Token 可用不代表 Git 推送权限可用。
+
+GitHub 每版只接收 **8 个附件**：六程序包、`SHA256SUMS`、`build.json`，不复制内部 `release-complete.json`；GHCR 继续 `--all --preserve-digests` 全量复制双架构。目标已一致则复用，冲突停止。认证及独立匿名索引/子清单验收成功后才能将目标草稿转正式。全部版本验证成功且无历史证据缺口后，才按 main 祖先规则推进 GHCR `latest`；有些版本已补齐但整体存在缺口时仍返回失败，逐版报告，不模拟总成功。
+
+历史五包/reauth 原件保持不变；缺少新六包与完成证明的导入版本明确报告历史缺口，不伪造新验收、不重建或自动认领。当前存在这些历史缺口，因此严格同步可能完成新版本补齐后仍非零，并阻止 `latest` 更新，需维护者另行处理证据边界，不能通过忽略缺口制造成功。
+
+GHCR 首次建包或整包删除后重建通常为 private，公开代码仓库不使包自动 Public。仅实际需要并获授权时，由操作者在**确切包**的 Settings / Danger Zone 设置 Public，再重新验收；没有可虚构的 REST 可见性参数，不自动改可见性或删除重建。2026-11-22 只读审计已确认现有 `eezd/sub2api` 包为 Public，该事实不代替后续每版匿名验收。
+
+## 离线验证和真实验收边界
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py' -v
 PYTHONDONTWRITEBYTECODE=1 python3 .github/release-tools/test_release_matrix.py
-bash -n release.sh sysnc-github.sh scripts/build-release.sh scripts/package-release.sh
+bash -n scripts/build-release.sh scripts/package-release.sh
 git diff --check
 ```
 
-这些测试覆盖模拟 API、临时 Git 历史、同基础数字编号与失败占号、完整 SHA 复用/冲突、排队后分页解析实际版本、全量失败重建、零写入保护，TLS 环境保留、任务 daemon/证书边界、具名 context/builder 与失败清理，以及同步双 Token 的独立环境优先/文件回退、读取失败前零 API/锁/同步调用和固定 User-Agent 透传、Registry 默认文件/显式无效不回退、临时 Git 认证白名单继承（含空 helper、多值顺序）与新 custom 产物复制；不启动 Forgejo、Docker 或真实 Actions，不证明 Sub2API 实例权限、TLS、网络隔离或真实构建已通过。
+测试使用临时 Git 历史、HOME、合成 Secret、模拟 API/Registry，不读取真实凭据或创建 Docker 服务。测试应覆盖来源冻结/旧证据、显式认证、匿名失败草稿、架构顺序、别名祖先、稳定指纹、先 build 后删及取消精确清理；本地通过不证明新的 Actions、实例权限、并发、Registry 和真实构建已验收。交付必须分别报告本地代码/测试、可信 main 安装、真实 Forgejo 发布、独立 GitHub 同步和人工可见性步骤。
 
-## GitHub 手动同步
+## 本机编译与 systemd
 
-`./sysnc-github.sh` 是另行授权的独立写入命令，不会被发布脚本调用。`FORGEJO_TOKEN` 与 `GITHUB_TOKEN` 分别优先使用各自非空环境变量；未设置或为空时，仅读取调用用户 `HOME` 下各自的 `~/.config/forgejo/token`、`~/.config/github/token`，按 UTF-8 纯文本去掉首尾空白。任一文件缺失、为空、不可读或编码错误，在任何 API 请求、锁或同步前失败，不输出内容、不扫描其他配置或旧凭据。文件应在仓库外且仅本人可读写（如 0600）。API 凭据不代替 Git 认证，不进入 Git 子进程。临时裸仓库只继承本项目本地 `credential.*` 的 helper、username、useHttpPath（包括空 helper 重置和多值顺序），不复制 remote、hooks 或全部 `.git/config`；没有本地 Git 配置时仍可使用已有全局/SSH 认证。认证核对须包含临时快照的 Git 传输预检，不能只验证原项目。
-
-镜像认证独立于两个 API Token。非空 `REGISTRY_AUTH_FILE` 优先；未设置或为空时使用调用用户的 `~/.config/containers/auth.json`，登录后可直接运行同步命令。所选路径必须是普通可读文件；显式无效路径不回退。缺失或不可读时只报告所选路径及 `skopeo login --authfile <所选路径> <源或目标 Registry>`/指定 `REGISTRY_AUTH_FILE` 的指引，不打印内容、不自动登录，也不从 Token 文件生成 Registry 认证。Forgejo API 请求透传固定 `User-Agent: forgejo-init-manual-sync`，这属于接口契约适配，不表示已确认存在无 UA 的 403 故障。先确认公开范围获批、GitHub Actions 已关闭、客户端兼容性已验证。仅同步允许的 `main` 及其可达的已验收正式 Forgejo TAG/Release/版本镜像，不公开 `dev`，不更新 GitHub `production`、`latest` 或 Forgejo 专用完成标记。已有目标内容完全一致时不重复写入；冲突时停止。
-
-新流程 `v<已集成上游正式版本>-custom.N` 只有满足 TAG、完整 SHA、六包哈希和完成记录契约才可复制。导入的旧 `v*-custom.*` 虽然名称相同，但没有新六包证据和完成标记，必须保留原件，不能伪造新验收记录、重建或添加兼容认领层。同步器明确列为缺少证据的历史缺口并返回非零；本次历史导入的独立原件对等核对不改变此规则。现有 GitHub 安装、升级和 reauth 不能直接消费 Forgejo 新版格式，发布成功不代表生产已部署。
+本机流程独立于上述两个 Actions。按[贡献指南](../CONTRIBUTING.md#按改动范围验证)构建前端，再以 `go build -tags embed` 编译；仅在获授权目标环境使用 [`sub2api.service`](sub2api.service)，其程序路径为 `/opt/sub2api/sub2api`，配置/数据见[原生部署说明](README.md#binary-installation)。不恢复已撤下的常驻开发 unit；临时检查只能使用隔离 PostgreSQL/Redis/配置/数据。发布、同步不等于部署或授权启动与 SQL 迁移。现有 GitHub 安装器、升级器和 reauth 也不自动兼容新 Forgejo 六包格式。

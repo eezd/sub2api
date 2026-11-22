@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/serverless"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -1146,6 +1147,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 
 		status := c.Writer.Status()
+		if serverless.ForwardClientCanceled(c) {
+			// The primary may not have parsed the body/model before transfer.
+			// Record the local outcome without inventing an upstream response.
+			service.MarkOpsClientCancellation(c, false)
+			logOpsStreamError(c, ops, status)
+			return
+		}
 		// Trust only the forwarding boundary's local marker. The captured SSE
 		// parser cannot distinguish a bridge failure from an upstream failure and
 		// otherwise overwrites real HTTP 200 evidence with a synthetic 502.
@@ -1552,6 +1560,9 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 			"wire_status": wireStatus, "status": streamErr.IntendedStatus}
 		if failure.RequestWritten != nil {
 			fields["request_written"] = *failure.RequestWritten
+		}
+		if failure.Controls != nil {
+			fields["controls"] = failure.Controls
 		}
 		if payload, err := json.Marshal(gin.H{"error": fields}); err == nil {
 			errorBody = string(payload)

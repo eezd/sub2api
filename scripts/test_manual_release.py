@@ -22,7 +22,8 @@ spec.loader.exec_module(release)
 
 class BaselineTests(unittest.TestCase):
     def test_selects_nearest_parent_then_newest_completion(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'ROOT', Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'ROOT', Path(directory)), \
+             patch.dict(os.environ, HOME=directory, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull):
             def git(*args):
                 return subprocess.check_output(['git', '-C', directory, *args], text=True).strip()
 
@@ -55,253 +56,23 @@ class BaselineTests(unittest.TestCase):
 
 class CustomVersionTests(unittest.TestCase):
     def test_counter_is_numeric_and_only_uses_pinned_upstream_base(self):
-        self.assertEqual(release.UPSTREAM_TAG, 'v2.22.0')
-        self.assertEqual(release.UPSTREAM_COMMIT, '4ba33f8713cbf6c6406e0f2639ffcc2ef1e31c87')
-        self.assertEqual(release.version_for([]), 'v2.22.0-custom.1')
-        self.assertEqual(release.version_for({'v2.22.0-custom.2', 'v2.22.0-custom.9',
-                         'v2.22.0-custom.10', 'v2.21.0-custom.999', 'v2.23.0-custom.999',
-                         '20261121-aaaaaaaa', 'v2.22.0'}), 'v2.22.0-custom.11')
+        self.assertEqual(release.UPSTREAM_TAG, 'v2.23.1')
+        self.assertEqual(release.UPSTREAM_COMMIT, '00e00796080c632188cf9df7912050b144a1a44f')
+        self.assertEqual(release.version_for([]), 'v2.23.1-custom.1')
+        self.assertEqual(release.version_for({'v2.23.1-custom.2', 'v2.23.1-custom.9',
+                         'v2.23.1-custom.10', 'v2.22.0-custom.999', 'v2.23.0-custom.999',
+                         '20261121-aaaaaaaa', 'v2.23.1'}), 'v2.23.1-custom.11')
 
     def test_remote_tags_and_markerless_legacy_releases_both_occupy_numbers(self):
         api = MagicMock()
-        api.git.return_value = ('a' * 40 + '\trefs/tags/v2.22.0-custom.9\n' +
-                                'b' * 40 + '\trefs/tags/v2.21.0-custom.999\n')
-        api.pages.return_value = [{'tag_name': 'v2.22.0-custom.10'}]
+        api.git.return_value = ('a' * 40 + '\trefs/tags/v2.23.1-custom.9\n' +
+                                'b' * 40 + '\trefs/tags/v2.22.0-custom.999\n')
+        api.pages.return_value = [{'tag_name': 'v2.23.1-custom.10'}]
         api.assets.return_value = {'checksums.txt': b'legacy'}
         history, unfinished = release.release_history(api)
         self.assertEqual(history, {})  # Historical imports are never completed baselines.
-        self.assertEqual(release.version_for(unfinished), 'v2.22.0-custom.11')
+        self.assertEqual(release.version_for(unfinished), 'v2.23.1-custom.11')
         api.download.assert_not_called()
-
-
-class ClientTests(unittest.TestCase):
-    def run_client(self, dispatch_response):
-        source = (ROOT / 'release.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-        calls = []
-        sha = 'a' * 40
-
-        @contextmanager
-        def reply(url, auth, *, method, data, **_kwargs):
-            calls.append((url, method, data))
-            self.assertEqual(auth, 'token fixture')
-            if '/branches/' in url:
-                value = {'commit': {'id': sha}}
-            elif url.endswith('/dispatches'):
-                if isinstance(dispatch_response, OSError):
-                    raise dispatch_response
-                value = dispatch_response
-            elif url.endswith('/actions/runs/123'):
-                value = {'conclusion': 'failure'}
-            else:
-                raise AssertionError(url)
-            yield 200, {}, io.BytesIO(json.dumps(value).encode())
-
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with (tempfile.TemporaryDirectory() as home,
-              patch.object(gitea_http, 'request', reply),
-              patch.dict(os.environ, {'FORGEJO_TOKEN': 'fixture', 'HOME': home}),
-              patch.object(sys, 'argv', ['release', 'feature/example', str(ROOT)]),
-              patch.object(sys, 'path', sys.path[:]), redirect_stdout(stdout), redirect_stderr(stderr),
-              self.assertRaises(SystemExit) as exit_status):
-            exec(compile(source, 'release.sh', 'exec'), {})
-        self.assertEqual(exit_status.exception.code, 1)
-        self.assertIn('/branches/feature%2Fexample', calls[0][0])
-        self.assertIn('版本：由串行任务分配 custom.N', stdout.getvalue())
-        dispatch, = [call for call in calls if call[1] == 'POST']
-        self.assertTrue(dispatch[0].endswith(
-            '/actions/workflows/sub2api-manual-release.yml/dispatches'))
-        self.assertTrue((ROOT / '.forgejo/workflows/sub2api-manual-release.yml').is_file())
-        data = json.loads(dispatch[2])
-        self.assertEqual(data['ref'], 'refs/heads/main')
-        self.assertEqual(data['inputs']['source_sha'], sha)
-        self.assertEqual(data['inputs']['source_branch'], 'feature/example')
-        self.assertIs(data['return_run_info'], True)
-        self.assertEqual(set(data['inputs']), {'source_branch', 'source_sha', 'request_id'})
-        self.assertIn(data['inputs']['request_id'], stdout.getvalue())
-        return calls, stderr.getvalue()
-
-    def test_lost_dispatch_response_is_not_replayed(self):
-        calls, error = self.run_client(OSError('lost response'))
-        self.assertEqual(len(calls), 2)
-        self.assertIn('按请求 ID 核查', error)
-
-    def test_only_returned_run_id_is_polled(self):
-        calls, error = self.run_client({'id': 123, 'run_number': 8})
-        self.assertEqual(len(calls), 3)
-        self.assertTrue(calls[-1][0].endswith('/actions/runs/123'))
-        self.assertIn('发布未成功：failure', error)
-        self.assertIn('/actions/runs/8', error)
-
-
-class ClientCompletionTests(unittest.TestCase):
-    def setUp(self):
-        source = (ROOT / 'release.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-        # Load definitions without running the dispatch client.
-        self.scope = {}
-        with patch.object(sys, 'argv', ['release', 'main', str(ROOT)]), patch.object(sys, 'path', sys.path[:]):
-            exec(compile(source.split('\ntry:\n    main()', 1)[0], 'release.sh', 'exec'), self.scope)
-        self.sha = 'a' * 40
-        self.version = 'v2.22.0-custom.12'
-        self.build = json.dumps({'version': self.version, 'source_sha': self.sha}).encode()
-        self.completion = json.dumps(dict(version=self.version, source_sha=self.sha,
-                                    build_sha256=release.digest(self.build))).encode()
-        self.entry = {'tag_name': self.version, 'draft': False, 'prerelease': False, 'assets': [
-            {'name': name, 'browser_download_url': 'https://git.134333.xyz/' + name}
-            for name in ('build.json', 'release-complete.json')]}
-        self.origin = release.urllib.parse.urlsplit('https://git.134333.xyz/api/v1')
-        self.calls = []
-
-    def request(self, url, token, **kwargs):
-        self.calls.append(url)
-        if url.endswith('page=1'):
-            return [{'tag_name': 'v2.22.0-custom.2', 'draft': False, 'prerelease': False, 'assets': []}]
-        if url.endswith('page=2'):
-            return [self.entry]
-        if url.endswith('page=3'):
-            return []
-        if url.endswith('/build.json'):
-            return self.build
-        if url.endswith('/release-complete.json'):
-            return self.completion
-        if '/tags/' in url:
-            return {'name': self.version, 'commit': {'sha': self.sha}}
-        raise AssertionError(url)
-
-    def resolve(self):
-        with patch.dict(self.scope, request=self.request):
-            return self.scope['completed_release']('https://git.134333.xyz/api/v1/repos/eezd/sub2api',
-                                                   'a' * 40, self.origin, 'synthetic-token')
-
-    def test_resolves_actual_queued_counter_from_second_page_and_skips_legacy(self):
-        self.assertEqual(self.resolve(), 'v2.22.0-custom.12')
-        self.assertTrue(any(url.endswith('/tags/' + self.version) for url in self.calls))
-        self.assertTrue(any(url.endswith('page=3') for url in self.calls))
-
-    def test_no_completed_legacy_is_not_claimed(self):
-        original = self.request
-        self.request = lambda url, *args, **kwargs: [] if url.endswith('page=2') else original(url, *args, **kwargs)
-        with self.assertRaisesRegex(RuntimeError, '未找到唯一'):
-            self.resolve()
-
-    def test_marker_hash_and_full_sha_conflicts_are_rejected(self):
-        for changes in ({'build_sha256': '0' * 64}, {'source_sha': 'a' * 8 + 'b' * 32},
-                        {'version': 'v2.22.0-custom.13'}):
-            with self.subTest(changes=changes):
-                self.completion = json.dumps(dict(version=self.version, source_sha=self.sha,
-                    build_sha256=release.digest(self.build)) | changes).encode()
-                with self.assertRaises(RuntimeError):
-                    self.resolve()
-
-    def test_tag_full_sha_conflict_is_rejected(self):
-        original = self.request
-        self.request = lambda url, *args, **kwargs: {'name': self.version, 'commit': {'sha': 'a' * 8 + 'b' * 32}} if '/tags/' in url else original(url, *args, **kwargs)
-        with self.assertRaisesRegex(RuntimeError, '正式 TAG'):
-            self.resolve()
-
-    def test_duplicate_completed_match_is_rejected(self):
-        original = self.request
-        other = 'v2.22.0-custom.13'
-        other_build = json.dumps(dict(version=other, source_sha=self.sha)).encode()
-        other_completion = json.dumps(dict(version=other, source_sha=self.sha,
-                                            build_sha256=release.digest(other_build))).encode()
-
-        def request(url, *args, **kwargs):
-            if url.endswith('page=3'):
-                return [dict(self.entry, tag_name=other, assets=[
-                    {'name': name, 'browser_download_url': 'https://git.134333.xyz/other/' + name}
-                    for name in ('build.json', 'release-complete.json')])]
-            if url.endswith('page=4'):
-                return []
-            if '/other/' in url:
-                return other_build if url.endswith('build.json') else other_completion
-            if url.endswith('/tags/' + other):
-                return {'name': other, 'commit': {'sha': self.sha}}
-            return original(url, *args, **kwargs)
-
-        self.request = request
-        with self.assertRaisesRegex(RuntimeError, '未找到唯一'):
-            self.resolve()
-
-
-class ClientCredentialTests(unittest.TestCase):
-    def run_client(self, home, token, *, read_error=None):
-        source = (ROOT / 'release.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-        calls = []
-
-        @contextmanager
-        def reply(url, auth, **kwargs):
-            calls.append((url, auth))
-            raise OSError('synthetic API boundary')
-            yield  # pragma: no cover
-
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with (patch.dict(os.environ, {'HOME': str(home)}),
-              patch.object(gitea_http, 'request', reply),
-              patch.object(sys, 'argv', ['release', 'main', str(ROOT)]),
-              patch.object(sys, 'path', sys.path[:]),
-              redirect_stdout(stdout), redirect_stderr(stderr)):
-            if token is None:
-                os.environ.pop('FORGEJO_TOKEN', None)
-            else:
-                os.environ['FORGEJO_TOKEN'] = token
-            with self.assertRaises(SystemExit) as status:
-                if read_error:
-                    with patch.object(Path, 'read_text', side_effect=read_error):
-                        exec(compile(source, 'release.sh', 'exec'), {})
-                else:
-                    exec(compile(source, 'release.sh', 'exec'), {})
-        self.assertEqual(status.exception.code, 1)
-        self.assertNotIn('发布成功', stdout.getvalue())
-        return calls, stdout.getvalue() + stderr.getvalue()
-
-    def test_environment_token_takes_precedence_without_reading_file(self):
-        with tempfile.TemporaryDirectory() as home:
-            calls, output = self.run_client(home, 'synthetic-env-token',
-                                           read_error=AssertionError('file must not be read'))
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], 'token synthetic-env-token')
-        self.assertNotIn('synthetic-env-token', output)
-
-    def test_unset_or_empty_environment_uses_calling_users_home(self):
-        for token in (None, ''):
-            with self.subTest(token=token), tempfile.TemporaryDirectory() as home:
-                path = Path(home) / '.config/forgejo/token'
-                path.parent.mkdir(parents=True)
-                path.write_text('  synthetic-file-token\n', encoding='utf-8')
-                path.chmod(0o600)
-                calls, output = self.run_client(home, token)
-                self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0][1], 'token synthetic-file-token')
-                self.assertNotIn('synthetic-file-token', output)
-
-    def test_missing_or_empty_file_fails_before_api(self):
-        for content in (None, '', ' \n\t'):
-            with self.subTest(content=content), tempfile.TemporaryDirectory() as home:
-                path = Path(home) / '.config/forgejo/token'
-                if content is not None:
-                    path.parent.mkdir(parents=True)
-                    path.write_text(content, encoding='utf-8')
-                calls, output = self.run_client(home, None)
-                self.assertEqual(calls, [])
-                self.assertIn(str(path), output)
-                self.assertIn('缺少 FORGEJO_TOKEN', output)
-
-    def test_unreadable_file_fails_without_leaking_error_or_requesting_api(self):
-        with tempfile.TemporaryDirectory() as home:
-            calls, output = self.run_client(home, '', read_error=PermissionError('synthetic-private-content'))
-        self.assertEqual(calls, [])
-        self.assertIn('读取 Forgejo 凭据文件失败', output)
-        self.assertNotIn('synthetic-private-content', output)
-
-    def test_invalid_utf8_fails_without_leaking_content_or_requesting_api(self):
-        with tempfile.TemporaryDirectory() as home:
-            path = Path(home) / '.config/forgejo/token'
-            path.parent.mkdir(parents=True)
-            path.write_bytes(b'\xffsynthetic-private-content')
-            calls, output = self.run_client(home, '')
-        self.assertEqual(calls, [])
-        self.assertIn('读取 Forgejo 凭据文件失败', output)
-        self.assertNotIn('synthetic-private-content', output)
 
 
 class VerifyBuildTests(unittest.TestCase):
@@ -321,11 +92,21 @@ class VerifyBuildTests(unittest.TestCase):
             'SOURCE_SHA': self.commit, 'RELEASE_RUN_ID': '123-1',
             'TRUSTED_SHA': 'c' * 40, 'REQUEST_ID': '00000000-0000-4000-8000-000000000001',
         }))
+        self.context_path = directory / 'context.json'
+        self.env.update(CONTROL_REF='refs/heads/main', CONTROL_SHA='c' * 40, CI_RUN_ID='123', CI_RUN_ATTEMPT='1',
+                        RELEASE_CONTEXT=str(self.context_path))
+        self.write_context(self.commit)
         self.env.pop('FORGEJO_RELEASE_TOKEN', None)
         self.api = self.enterContext(patch.object(release, 'Forgejo'))
         self.publish = self.enterContext(patch.object(release, 'publish'))
         self.engine = self.enterContext(patch.object(release, 'worker_build_engine'))
         self.build = self.enterContext(patch.object(release, 'build'))
+
+    def write_context(self, commit):
+        self.context_path.write_bytes(release.packed(dict(schema=1, source_branch='feature/demo', source_sha=commit,
+            source_branch_head=commit, release_inputs={'source_branch': 'feature/demo', 'source_sha': commit},
+            version='', control_sha='c'*40, release_run_id='123-1',
+            release_request_id='00000000-0000-4000-8000-000000000001')))
 
     def git(self, *args):
         return release.git(*args)
@@ -339,7 +120,7 @@ class VerifyBuildTests(unittest.TestCase):
         output, row, run_id = self.build.call_args.args
         self.assertEqual(row['source_sha'], self.commit)
         self.assertEqual(row['source_branch'], 'feature/demo')
-        self.assertEqual(row['version'], 'v2.22.0-custom.1')
+        self.assertEqual(row['version'], 'v2.23.1-custom.1')
         self.assertIn('verification-only label, not allocated', stdout.getvalue())
         self.assertEqual(run_id, '123-1')
         self.engine.assert_called_once_with()
@@ -351,7 +132,7 @@ class VerifyBuildTests(unittest.TestCase):
     def test_unreachable_sha_stops_before_worker_access(self):
         self.git('update-ref', 'refs/remotes/origin/feature/demo', self.commit)
         self.git('commit', '-q', '--allow-empty', '-m', 'not on source branch')
-        self.env['SOURCE_SHA'] = self.git('rev-parse', 'HEAD')
+        self.write_context(self.git('rev-parse', 'HEAD'))
         with self.assertRaisesRegex(ValueError, 'no longer reachable'):
             release.verify_build()
         self.engine.assert_not_called()
@@ -361,10 +142,24 @@ class VerifyBuildTests(unittest.TestCase):
     def test_source_without_pinned_upstream_stops_before_worker_access(self):
         self.git('checkout', '-q', '--orphan', 'unrelated')
         self.git('commit', '-q', '--allow-empty', '-m', 'unrelated root')
-        self.env['SOURCE_SHA'] = self.git('rev-parse', 'HEAD')
+        self.write_context(self.git('rev-parse', 'HEAD'))
         self.git('update-ref', 'refs/remotes/origin/feature/demo', 'HEAD')
         with self.assertRaisesRegex(ValueError, 'no longer reachable'):
             release.verify_build()
+        self.engine.assert_not_called()
+        self.build.assert_not_called()
+        self.api.assert_not_called()
+
+    def test_current_context_rejects_stale_run_control_and_non_normalized_inputs(self):
+        for field in ('release_run_id', 'control_sha', 'release_inputs', 'source_branch_head'):
+            with self.subTest(field=field):
+                self.write_context(self.commit)
+                value = json.loads(self.context_path.read_bytes())
+                value[field] = ({'source_branch': ' feature/demo ', 'source_sha': self.commit}
+                                if field == 'release_inputs' else 'invalid')
+                self.context_path.write_bytes(release.packed(value))
+                with self.assertRaises(ValueError):
+                    release.verify_build()
         self.engine.assert_not_called()
         self.build.assert_not_called()
         self.api.assert_not_called()
@@ -405,8 +200,8 @@ class WorkerTests(unittest.TestCase):
 
 class SyncRegistryTests(unittest.TestCase):
     def setUp(self):
-        script = ROOT / 'sysnc-github.sh'
-        source = script.read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+        script = ROOT / 'scripts/sync-github.py'
+        source = script.read_text()
         scope = {'__name__': 'test_sync_registry'}
         exec(compile(source, str(script), 'exec'), scope)
         self.read_manifest = scope['read_manifest']
@@ -473,7 +268,7 @@ class FakeForgejo:
         self.tags = set()
         self.annotations = {}
         self.fail_upload = None
-        self.old_run = dict(id=100, workflow_id=release.WORKFLOW, repository={'full_name': release.REPO},
+        self.old_run = dict(id=100, workflow_id=release.LEGACY_WORKFLOW, repository={'full_name': release.REPO},
                             event='workflow_dispatch', commit_sha='c' * 40, status='failure', stopped='2025-03-02',
                             event_payload=json.dumps({'ref': 'refs/heads/main', 'inputs': {
                                 'source_branch': row['source_branch'], 'source_sha': row['source_sha'],
@@ -485,6 +280,9 @@ class FakeForgejo:
     def annotation(self):
         return self.annotations[self.row['version']]
 
+    def git(self, *args):
+        return 'stable tag refs'
+
     def release(self, version):
         return self.entry if self.entry and self.entry['tag_name'] == version else None
 
@@ -492,10 +290,10 @@ class FakeForgejo:
         return [self.entry] if self.entry else []
 
     def assets(self, _entry):
-        return self.attachments.copy()
+        return {name: {'name': name, 'size': len(content)} for name, content in self.attachments.items()}
 
     def download(self, asset):
-        return asset
+        return self.attachments[asset['name']]
 
     def upload(self, _entry, file):
         self.writes.append(('upload', file.name))
@@ -537,7 +335,7 @@ class FakeForgejo:
 
 class PublisherTests(unittest.TestCase):
     def setUp(self):
-        self.row = dict(version='v2.22.0-custom.1', source_sha='a' * 40, source_branch='dev', previous_tag=None,
+        self.row = dict(version='v2.23.1-custom.1', source_sha='a' * 40, source_branch='dev', previous_tag=None,
                         built_at='2025-03-01T00:00:00Z', body='init', run_id='100-1', actor_id=7,
                         request_id='00000000-0000-4000-8000-000000000001', control_sha='c' * 40)
         self.api = FakeForgejo(self.row)
@@ -554,6 +352,11 @@ class PublisherTests(unittest.TestCase):
         self.engine = self.enterContext(patch.object(release, 'worker_build_engine'))
         self.builder = self.enterContext(patch.object(release, 'build', side_effect=self.build))
         self.registry = self.enterContext(patch.object(release, 'registry'))
+        self.enterContext(patch.object(release, 'public_registry'))
+        self.enterContext(patch.object(release, 'latest'))
+        self.context_file = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'release.json'
+        self.enterContext(patch.dict(os.environ, RELEASE_CONTEXT=str(self.context_file), CONTROL_REF='refs/heads/main',
+                                    CONTROL_SHA='c'*40, CI_RUN_ID='200', CI_RUN_ATTEMPT='1'))
         self.workspaces = []
 
     def tag(self, _api, row, *, create=False):
@@ -562,6 +365,9 @@ class PublisherTests(unittest.TestCase):
             self.api.tags.add(version)
             self.api.annotations[version] = dict(name=version, commit={'sha': row['source_sha']},
                                        message=release.packed(release.attempt_identity(row)).decode())
+            if row.get('schema') == 5 and row['run_id'] == '100-1':
+                self.api.old_run['workflow_id'] = release.WORKFLOW
+                self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': row['release_inputs']})
         if version not in self.api.tags:
             raise ValueError('Missing or conflicting annotated tag')
         if self.api.annotations[version]['commit']['sha'] != row['source_sha']:
@@ -575,11 +381,17 @@ class PublisherTests(unittest.TestCase):
             packages.append({'name': name, 'sha256': release.sha(directory / name)})
         (directory / 'SHA256SUMS').write_bytes(release.sums_bytes({p['name']: p['sha256'] for p in packages}))
         metadata = {key: row[key] for key in ('version', 'source_sha', 'source_branch', 'previous_tag', 'built_at')}
+        if row.get('schema') == 5:
+            metadata.update({key: row[key] for key in ('schema', *release.CONTEXT_KEYS)})
         (directory / 'build.json').write_bytes(release.packed(dict(metadata, packages=packages,
                                          image=dict(self.image, ref=release.IMAGE + ':' + row['version']))))
         (directory / 'image.oci').write_bytes(b'OCI fixture')
 
     def retry(self, branch='dev', run_id='200-1', sha='a' * 40):
+        os.environ.update(CI_RUN_ID=run_id.split('-')[0], CI_RUN_ATTEMPT=run_id.split('-')[1])
+        self.context_file.write_bytes(release.packed(dict(schema=1, version='', source_sha=sha, source_branch=branch,
+            source_branch_head=sha, release_inputs={'source_branch': branch, 'source_sha': sha}, control_sha='c'*40,
+            release_run_id=run_id, release_request_id=self.row['request_id'])))
         release.continue_release(self.api, 'auth.json', branch, sha, run_id)
 
     def partial(self):
@@ -612,6 +424,39 @@ class PublisherTests(unittest.TestCase):
         self.engine.assert_not_called()
         self.assertEqual(json.loads(self.api.attachments['build.json'])['source_branch'], 'dev')
 
+    def test_dev_new_publish_never_maintains_latest(self):
+        self.retry(branch='dev')
+        release.latest.assert_not_called()
+        self.assertFalse(self.api.entry['draft'])
+        self.assertIn(release.COMPLETE, self.api.attachments)
+
+    def test_dev_completed_reuse_never_maintains_latest(self):
+        self.retry(branch='dev')
+        release.latest.reset_mock()
+        self.api.writes.clear()
+        self.builder.reset_mock()
+        self.retry(branch='dev')
+        release.latest.assert_not_called()
+        self.builder.assert_not_called()
+        self.assertEqual(self.api.writes, [])
+
+    def test_main_request_reusing_dev_completed_source_never_maintains_latest(self):
+        self.retry(branch='dev')
+        release.latest.reset_mock()
+        self.api.writes.clear()
+        self.builder.reset_mock()
+        self.retry(branch='main')
+        release.latest.assert_not_called()
+        self.builder.assert_not_called()
+        self.assertEqual(self.api.writes, [])
+
+    def test_main_publish_and_completed_reuse_maintain_latest(self):
+        self.retry(branch='main')
+        release.latest.assert_called_once_with(self.api, 'auth.json')
+        release.latest.reset_mock()
+        self.retry(branch='main')
+        release.latest.assert_called_once_with(self.api, 'auth.json')
+
     def test_partial_upload_is_deleted_exactly_then_fully_rebuilt(self):
         self.partial()
         original = self.api.attachments[release.names(self.row['version'])[0]]
@@ -620,7 +465,7 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.api.writes[:2], [('DELETE', '/releases/42'),
                                              ('DELETE', release.package_path(self.row['version']))])
         self.assertEqual(self.builder.call_count, 2)
-        new_version = 'v2.22.0-custom.2'
+        new_version = 'v2.23.1-custom.2'
         self.assertEqual(self.api.entry['tag_name'], new_version)
         self.assertNotEqual(self.api.attachments[release.names(new_version)[0]], original)
         self.assertEqual(self.api.tags, {self.row['version'], new_version})
@@ -685,7 +530,7 @@ class PublisherTests(unittest.TestCase):
     def test_unknown_annotation_or_changed_inputs_never_deletes(self):
         self.partial()
         self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': {}})
-        with self.assertRaisesRegex(ValueError, 'identity differs'):
+        with self.assertRaisesRegex(ValueError, 'Invalid source branch'):
             self.retry()
         self.assertEqual(self.api.writes, [])
 
@@ -727,7 +572,7 @@ class PublisherTests(unittest.TestCase):
         self.api.attachments.clear()
         self.api.old_run['status'] = 'running'  # No cleanup or revalidation of an artifact-free tag.
         self.retry()
-        self.assertEqual(self.api.entry['tag_name'], 'v2.22.0-custom.2')
+        self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
         self.assertFalse(any(method == 'DELETE' for method, _ in self.api.writes))
 
     def test_completed_tag_full_sha_conflict_is_never_downgraded(self):
@@ -739,17 +584,15 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.api.writes, [])
         self.assertEqual(self.builder.call_count, 1)
 
-    def test_image_only_failed_attempt_is_cleaned_but_tag_consumes_number(self):
+    def test_image_only_without_metadata_is_unknown_and_never_deleted(self):
         self.partial()
         self.api.entry = None
         self.api.attachments.clear()
         self.api.package = {'owner': {'login': 'eezd'}, 'name': 'sub2api', 'type': 'container',
                             'version': self.row['version'], 'creator': {'id': self.api.actor_id}}
-        self.retry()
-        self.assertNotIn(('DELETE', '/releases/42'), self.api.writes)
-        self.assertIn(('DELETE', release.package_path(self.row['version'])), self.api.writes)
-        self.assertEqual(self.api.entry['tag_name'], 'v2.22.0-custom.2')
-        self.assertIn(self.row['version'], self.api.tags)
+        with self.assertRaisesRegex(ValueError, 'Unknown unfinished image metadata'):
+            self.retry()
+        self.assertEqual(self.api.writes, [])
 
     def test_same_sha_failed_attempt_from_old_branch_is_cleaned_before_new_number(self):
         self.partial()
@@ -757,7 +600,7 @@ class PublisherTests(unittest.TestCase):
         self.assertIn(('DELETE', '/releases/42'), self.api.writes)
         current = json.loads(self.api.attachments['build.json'])
         self.assertEqual(current['source_branch'], 'feature/repaired')
-        self.assertEqual(current['version'], 'v2.22.0-custom.2')
+        self.assertEqual(current['version'], 'v2.23.1-custom.2')
         self.assertEqual(json.loads(self.api.annotations[self.row['version']]['message'])['source_branch'], 'dev')
 
     def test_same_prefix_different_full_sha_does_not_reuse_completed_version(self):
@@ -765,11 +608,11 @@ class PublisherTests(unittest.TestCase):
         old_sha = 'a' * 40
         other_sha = 'a' * 8 + 'b' * 32
         self.retry(sha=other_sha)
-        self.assertEqual(self.api.entry['tag_name'], 'v2.22.0-custom.2')
-        self.assertEqual(self.api.annotations['v2.22.0-custom.1']['commit']['sha'], old_sha)
+        self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
+        self.assertEqual(self.api.annotations[self.row['version']]['commit']['sha'], old_sha)
         self.assertEqual(self.builder.call_args.args[1]['source_sha'], other_sha)
 
-    def test_unknown_delete_result_is_not_replayed_and_never_builds(self):
+    def test_unknown_delete_result_is_not_replayed_after_replacement_build(self):
         self.partial()
         original = self.api.repo
         def repo(path, method='GET', *args):
@@ -781,64 +624,237 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'DELETE result unknown'):
             self.retry()
         self.assertEqual(self.api.writes, [('DELETE', '/releases/42')])
-        self.assertEqual(self.builder.call_count, 1)
+        self.assertEqual(self.builder.call_count, 2)
 
+    def test_anonymous_failure_keeps_draft_without_marker_or_latest(self):
+        with patch.object(release, 'public_registry', side_effect=RuntimeError('anonymous denied')):
+            with self.assertRaisesRegex(RuntimeError, 'anonymous denied'):
+                self.retry()
+        self.assertTrue(self.api.entry['draft'])
+        self.assertNotIn(release.COMPLETE, self.api.attachments)
+        self.assertFalse(any(method == 'PATCH' for method, _ in self.api.writes))
+        release.latest.assert_not_called()
 
-class ReleaseVisibilityTests(unittest.TestCase):
-    def execute(self, repository):
-        self.api = MagicMock()
-        self.api.token = 'synthetic-release-token'
-        self.api.request.return_value = {'login': 'fixture', 'id': 7}
-        self.api.repo.return_value = repository
-        with (patch.object(release, 'release_inputs', return_value=('dev', 'a' * 40, '123-1')),
-              patch.object(release.os, 'umask'), patch.object(release, 'Forgejo', return_value=self.api),
-              patch.object(release, 'require_ancestor') as ancestry,
-              patch.object(release.subprocess, 'run') as process,
-              patch.object(release, 'continue_release', return_value='v2.22.0-custom.1') as publish, redirect_stdout(io.StringIO())):
-            self.process, self.publish, self.ancestry = process, publish, ancestry
-            release.execute()
+    def test_build_failure_never_deletes_unfinished(self):
+        self.partial()
+        with patch.object(release, 'build', side_effect=RuntimeError('replacement failed')):
+            with self.assertRaisesRegex(RuntimeError, 'replacement failed'):
+                self.retry()
+        self.assertEqual(self.api.writes, [])
+        self.assertIsNotNone(self.api.entry)
 
-    def test_public_primary_with_write_permission_reaches_release(self):
-        self.execute({'full_name': release.REPO, 'private': False, 'permissions': {'push': True}})
-        self.assertEqual(self.api.actor_id, 7)
-        self.publish.assert_called_once()
-        self.api.git.assert_called_once_with('fetch', '--no-tags', release.WEB + '.git', 'refs/heads/dev')
-        self.assertEqual([call.args for call in self.ancestry.call_args_list],
-                         [('a' * 40, 'FETCH_HEAD'), (release.UPSTREAM_COMMIT, 'a' * 40)])
-        self.process.assert_called_once()
+    def test_schema5_cannot_use_old_workflow_or_event(self):
+        self.partial()
+        self.api.old_run['workflow_id'] = release.LEGACY_WORKFLOW
+        with self.assertRaisesRegex(ValueError, 'identity differs'):
+            self.retry()
+        self.assertEqual(self.api.writes, [])
 
-    def test_wrong_visibility_identity_or_permission_stops_before_git_login_or_release(self):
-        for changes in ({'private': True}, {'private': None}, {'private': 0},
-                        {'full_name': 'other/sub2api'}, {'permissions': {'push': False}}):
-            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'public Forgejo primary'):
-                try:
-                    self.execute({'full_name': release.REPO, 'private': False, 'permissions': {'push': True}} | changes)
-                finally:
-                    self.api.git.assert_not_called()
-                    self.process.assert_not_called()
-                    self.publish.assert_not_called()
-                    self.ancestry.assert_not_called()
+    def test_schema5_recovers_original_event_with_whitespace(self):
+        self.partial()
+        payload = json.loads(self.api.old_run['event_payload'])
+        payload['inputs'] = {'source_branch': ' dev ', 'source_sha': ' ' + self.row['source_sha'] + ' '}
+        self.api.old_run['event_payload'] = json.dumps(payload)
+        self.retry()
+        self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
+        self.assertIn(('DELETE', '/releases/42'), self.api.writes)
+
+    def test_schema5_recovers_original_event_with_empty_or_omitted_optional_sha(self):
+        for inputs in ({'source_branch': ' dev ', 'source_sha': ' '}, {'source_branch': 'dev'}):
+            with self.subTest(inputs=inputs):
+                self.setUp()
+                self.partial()
+                owner = json.loads(self.api.annotation['message'])
+                owner['release_inputs']['source_sha'] = ''
+                self.api.annotation['message'] = json.dumps(owner)
+                metadata = json.loads(self.api.attachments['build.json'])
+                metadata['release_inputs']['source_sha'] = ''
+                self.api.attachments['build.json'] = release.packed(metadata)
+                self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': inputs})
+                self.retry()
+                self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
+                self.assertIn(('DELETE', '/releases/42'), self.api.writes)
+
+    def test_schema5_changed_original_event_fields_never_delete(self):
+        for inputs in ({'source_branch': 'main', 'source_sha': 'a'*40},
+                       {'source_branch': 'dev', 'source_sha': 'b'*40},
+                       {'source_branch': 'dev', 'source_sha': 'a'*40, 'request_id': self.row['request_id']}):
+            with self.subTest(inputs=inputs):
+                self.setUp()
+                self.partial()
+                self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': inputs})
+                with self.assertRaises(ValueError):
+                    self.retry()
+                self.assertEqual(self.api.writes, [])
+                self.assertEqual(self.builder.call_count, 1)
+
+    def test_known_legacy_three_input_failed_attempt_remains_recoverable(self):
+        self.partial()
+        owner = json.loads(self.api.annotation['message'])
+        for key in ('schema', 'source_branch_head', 'release_inputs', 'release_run_id', 'release_request_id'):
+            owner.pop(key)
+        self.api.annotation['message'] = json.dumps(owner)
+        self.api.old_run['workflow_id'] = release.LEGACY_WORKFLOW
+        self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': {
+            'source_branch': owner['source_branch'], 'source_sha': owner['source_sha'], 'request_id': owner['request_id']}})
+        metadata = json.loads(self.api.attachments['build.json'])
+        for key in ('schema', *release.CONTEXT_KEYS):
+            metadata.pop(key, None)
+        self.api.attachments['build.json'] = release.packed(metadata)
+        self.retry()
+        self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
+
+    def test_legacy_three_input_event_whitespace_remains_strict(self):
+        self.partial()
+        owner = json.loads(self.api.annotation['message'])
+        for key in ('schema', 'source_branch_head', 'release_inputs', 'release_run_id', 'release_request_id'):
+            owner.pop(key)
+        self.api.annotation['message'] = json.dumps(owner)
+        self.api.old_run['workflow_id'] = release.LEGACY_WORKFLOW
+        self.api.old_run['event_payload'] = json.dumps({'ref': 'refs/heads/main', 'inputs': {
+            'source_branch': ' dev ', 'source_sha': owner['source_sha'], 'request_id': owner['request_id']}})
+        with self.assertRaisesRegex(ValueError, 'identity differs'):
+            self.retry()
+        self.assertEqual(self.api.writes, [])
+
+    def test_historical_no_schema_completed_raw_hash_reused_without_build(self):
+        self.retry()
+        metadata = json.loads(self.api.attachments['build.json'])
+        for key in ('schema', *release.CONTEXT_KEYS):
+            metadata.pop(key, None)
+        raw = json.dumps(metadata, indent=3).encode()  # deliberately noncanonical original bytes
+        self.api.attachments['build.json'] = raw
+        self.api.attachments[release.COMPLETE] = release.packed(release.marker(metadata, release.digest(raw)))
+        self.api.writes.clear()
+        self.builder.reset_mock()
+        self.retry()
+        self.builder.assert_not_called()
+        self.assertEqual(self.api.writes, [])
+        self.assertEqual(self.api.attachments['build.json'], raw)
+
+    def asset_identities(self):
+        identities = {name: dict(id=index+1, uuid='asset-'+str(index), name=name, size=len(data),
+                     type='application/octet-stream', browser_download_url=name, download_count=0)
+                     for index, (name, data) in enumerate(self.api.attachments.items())}
+        self.api.assets = lambda _: identities.copy()
+        self.api.download = lambda asset: self.api.attachments[asset['browser_download_url']]
+        return identities
+
+    def test_fingerprint_ignores_download_growth_and_asset_order(self):
+        self.partial()
+        identities = self.asset_identities()
+        first = release.unfinished_snapshot(self.api, self.row, '200-1')
+        self.api.entry.update(download_count=42, archive_download_count=99)
+        self.api.entry['author'].update(followers=40, repository_stats={'views': 100})
+        self.api.entry['repository'] = {'archive_download_count': 123, 'owner': {'followers': 50}}
+        self.api.package['owner'].update(followers=90, stats={'downloads': 100})
+        self.api.package['creator']['followers'] = 80
+        self.api.annotation['commit']['author'] = {'stats': {'commits': 42}}
+        for asset in identities.values():
+            asset['download_count'] += 100
+            asset['archive_download_count'] = 200
+            asset['uploader'] = {'followers': 20}
+        identities = dict(reversed(list(identities.items())))
+        self.api.assets = lambda _: identities.copy()
+        self.assertEqual(first, release.unfinished_snapshot(self.api, self.row, '200-1'))
+        release.clean_unfinished(self.api, self.row, '200-1', self.api.entry, self.api.package, first)
+        self.assertEqual(self.api.writes[0], ('DELETE', '/releases/42'))
+
+    def test_archive_download_count_growth_during_build_allows_full_recovery(self):
+        self.partial()
+        original_build = self.build
+        def changed(directory, row, run_id):
+            original_build(directory, row, run_id)
+            self.api.entry['archive_download_count'] = 123
+            self.api.entry['author']['followers'] = 100
+            self.api.package['owner']['stats'] = {'downloads': 50}
+        self.builder.side_effect = changed
+        self.retry()
+        self.assertEqual(self.api.entry['tag_name'], 'v2.23.1-custom.2')
+        self.assertIn(('DELETE', '/releases/42'), self.api.writes)
+
+    def test_stable_release_asset_package_and_tag_changes_never_delete(self):
+        # Each stable field is independently changed *after* the replacement build.
+        for field in ('body', 'name', 'draft', 'prerelease', 'release-id', 'release-uuid', 'author-id',
+                      'asset-id', 'asset-uuid', 'asset-name', 'asset-size', 'asset-type', 'asset-hash',
+                      'metadata-hash', 'package-id', 'package-owner-id', 'tag-id', 'tag-object',
+                      'manifest-digest', 'event-source', 'original-run'):
+            with self.subTest(field=field):
+                self.setUp()
+                self.partial()
+                identities = self.asset_identities()
+                self.api.package['id'] = 1
+                original_build = self.build
+                def changed(directory, row, run_id):
+                    original_build(directory, row, run_id)
+                    if field in ('body', 'name', 'draft', 'prerelease'):
+                        self.api.entry[field] = 'changed'
+                    elif field.startswith('release-'):
+                        self.api.entry[field.removeprefix('release-')] = 'changed'
+                    elif field == 'author-id':
+                        self.api.entry['author']['id'] = 999
+                    elif field.startswith('asset-'):
+                        key = 'sha256' if field == 'asset-hash' else field.removeprefix('asset-')
+                        next(iter(identities.values()))[key] = 'changed'
+                    elif field == 'metadata-hash':
+                        metadata = json.loads(self.api.attachments['build.json'])
+                        metadata['built_at'] = '2025-03-01T01:00:00Z'
+                        self.api.attachments['build.json'] = release.packed(metadata)
+                    elif field == 'package-id':
+                        self.api.package['id'] = 2
+                    elif field == 'package-owner-id':
+                        self.api.package['owner']['id'] = 999
+                    elif field == 'tag-id':
+                        self.api.annotation['id'] = 'changed'
+                    elif field == 'manifest-digest':
+                        release.inspect_registry.return_value = b'changed manifest bytes'
+                    elif field == 'tag-object':
+                        self.api.git = lambda *args: 'changed tag object'
+                    elif field == 'event-source':
+                        payload = json.loads(self.api.old_run['event_payload'])
+                        payload['inputs']['source_sha'] = 'b'*40
+                        self.api.old_run['event_payload'] = json.dumps(payload)
+                    else:
+                        self.api.old_run['status'] = 'running'
+                self.builder.side_effect = changed
+                with self.assertRaises(ValueError):
+                    self.retry()
+                self.assertEqual(self.api.writes, [])
+
+    def test_partial_arch_without_build_digest_identity_is_not_adopted(self):
+        self.partial()
+        self.api.entry = None
+        self.api.attachments.clear()
+        self.api.package['version'] += '-arm64'
+        with self.assertRaisesRegex(ValueError, 'Unknown unfinished image metadata'):
+            self.retry()
+        self.assertEqual(self.api.writes, [])
 
 
 class WorkflowContractTests(unittest.TestCase):
-    def test_only_forgejo_dispatch_three_strings_and_legal_secret(self):
+    def test_web_contract_shared_serial_group_and_exact_cleanup(self):
         import yaml
-        workflow = yaml.load((ROOT / '.forgejo/workflows/sub2api-manual-release.yml').read_text(), Loader=yaml.BaseLoader)
-        self.assertEqual(set(workflow['on']), {'workflow_dispatch'})
-        inputs = workflow['on']['workflow_dispatch']['inputs']
-        self.assertEqual(set(inputs), {'source_branch', 'source_sha', 'request_id'})
-        for entry in inputs.values():
-            self.assertEqual(entry, {'required': 'true', 'type': 'string'})
-        self.assertFalse(list((ROOT / '.gitea/workflows').glob('*.yml')))
-        self.assertFalse(list((ROOT / '.github/workflows').glob('*.yml')))
-        self.assertEqual(workflow['permissions'], {'contents': 'read'})
-        self.assertEqual(workflow['concurrency']['cancel-in-progress'], 'false')
-        job = workflow['jobs']['release']
-        self.assertEqual(job['runs-on'], 'docker')
-        self.assertFalse(any(key.startswith('SUB2API_') or key.startswith('DOCKER_') for key in job['env']))
-        self.assertEqual(job['steps'][-1]['env'], {'FORGEJO_RELEASE_TOKEN': '${{ secrets.RELEASE_TOKEN }}'})
-        self.assertEqual(job['steps'][0]['with']['ref'], '${{ forgejo.sha }}')
-        self.assertEqual(job['steps'][0]['with']['persist-credentials'], 'false')
+        for filename, job_name in (('release.yml', 'release'), ('sync-github.yml', 'sync')):
+            workflow = yaml.load((ROOT / '.forgejo/workflows' / filename).read_text(), Loader=yaml.BaseLoader)
+            self.assertEqual(set(workflow['on']), {'workflow_dispatch'})
+            self.assertEqual(workflow['concurrency'], {'group': 'sub2api-delivery', 'cancel-in-progress': 'false'})
+            job = workflow['jobs'][job_name]
+            self.assertEqual(job['runs-on'], 'docker')
+            self.assertNotIn('runner.temp', json.dumps(job.get('env', {})))
+            self.assertIn('main', job['if'])
+            self.assertEqual(job['steps'][0]['with']['ref'], '${{ forgejo.sha }}')
+            self.assertEqual(job['steps'][0]['with']['persist-credentials'], 'false')
+            self.assertIn('always()', job['steps'][-1]['if'])
+            self.assertIn('--cleanup', job['steps'][-1]['run'])
+            if filename == 'release.yml':
+                inputs = workflow['on']['workflow_dispatch']['inputs']
+                self.assertEqual(set(inputs), {'source_branch', 'source_sha'})
+                self.assertEqual(inputs['source_branch']['default'], 'main')
+                self.assertEqual(inputs['source_sha']['required'], 'false')
+            else:
+                self.assertFalse(workflow['on']['workflow_dispatch'])
+        for deleted in ('release.sh', 'sysnc-github.sh', '.forgejo/workflows/sub2api-manual-release.yml'):
+            self.assertFalse((ROOT / deleted).exists())
 
 
 if __name__ == '__main__':

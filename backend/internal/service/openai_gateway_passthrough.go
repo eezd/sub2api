@@ -698,7 +698,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// DeepSeek / Kimi 原生 Responses 端点为无状态实现（见 normalizeDeepSeekResponsesRequestBody）。
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -741,6 +741,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.UsesOpenAICodexProtocol() {
+		req = req.WithContext(WithOpenAICodexHTTPRequest(req.Context()))
 		// Current Codex OAuth HTTP no longer negotiates the legacy Responses
 		// experiment. Passthrough may receive it from an older client, so remove
 		// only that token while preserving any independent beta negotiation.
@@ -1061,6 +1062,9 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	}
 	MarkResponseCommitted(c)
 	body := s.redactAgentIdentitySensitiveBody(ctx, account, responseBody)
+	if writeDeepSeekInputContentRejection(c, account, resp, body, writeChatCompletionsError) {
+		return fmt.Errorf("deepseek input content rejected")
+	}
 
 	// cyber_policy 仍按原始 body 打内部标记，供 handler 事后写风控/邮件；面向客户端的
 	// 错误体在下方统一重建。cyber 是上游网络安全策略拦截，不冷却账号，
@@ -2486,6 +2490,16 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 					if shouldFailover {
 						return resultWithUsage(),
 							s.newOpenAIStreamFailoverErrorWithModel(c, account, true, upstreamRequestID, dataBytes, failedMessage, mappedModel, resp.Header)
+					}
+					// Configured cooldowns are independent of replay eligibility.
+					// Preserve request-scoped errors and bare-error/failed deduplication.
+					accountSideEffectsAllowed := account != nil && account.Platform == PlatformOpenAI && !cyberHit &&
+						!isOpenAIContextWindowError(failedMessage, dataBytes) && !isOpenAIInvalidEncryptedContentSSE(dataBytes, eventType)
+					if codexFailureTerminal && eventType == "error" {
+						bareErrorAccountSideEffectsPending = accountSideEffectsAllowed
+					} else if accountSideEffectsAllowed {
+						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
+						bareErrorAccountSideEffectsPending = false
 					}
 					if !cyberHit && !sawBareError {
 						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {

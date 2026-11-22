@@ -1,4 +1,4 @@
-"""Offline credential and fixed-User-Agent tests for sysnc-github.sh."""
+"""Offline credential, distribution and fixed-User-Agent tests for scripts/sync-github.py."""
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import io
 import hashlib
@@ -13,139 +13,7 @@ from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / 'sysnc-github.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-
-
-class SyncCredentialTests(unittest.TestCase):
-    def setUp(self):
-        self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.project = self.home / 'project'
-        self.project.mkdir()
-        self.enterContext(patch.dict(os.environ, {'HOME': str(self.home)}, clear=True))
-        self.enterContext(patch.object(sys, 'argv', ['sync', str(ROOT)]))
-        self.enterContext(patch.object(sys, 'path', sys.path[:]))
-        self.module = {'__name__': 'sync_fixture'}
-        exec(compile(SOURCE, 'sysnc-github.sh', 'exec'), self.module)
-        self.api = MagicMock()
-        self.sync = MagicMock()
-        self.enterContext(patch.dict(self.module, API=self.api, sync=self.sync))
-
-    def token_file(self, service, content):
-        path = self.home / '.config' / service / 'token'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
-        path.chmod(0o600)
-        return path
-
-    def main(self, *, expected_error=None):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            if expected_error:
-                with self.assertRaisesRegex(RuntimeError, expected_error) as error:
-                    self.module['main'](self.project)
-                output = stdout.getvalue() + stderr.getvalue() + str(error.exception)
-                self.api.assert_not_called()
-                self.sync.assert_not_called()
-                self.assertFalse((self.project / 'runtime').exists())
-                return output
-            self.module['main'](self.project)
-        self.sync.assert_called_once()
-        self.assertEqual(self.api.call_count, 2)
-        return stdout.getvalue() + stderr.getvalue()
-
-    def test_each_nonempty_environment_token_wins_without_reading_any_file(self):
-        os.environ.update(FORGEJO_TOKEN='synthetic-env-forgejo', GITHUB_TOKEN='synthetic-env-github')
-        with patch.object(Path, 'read_text', side_effect=AssertionError('must not read credentials')):
-            output = self.main()
-        self.assertEqual([call.args[1] for call in self.api.call_args_list],
-                         ['token synthetic-env-forgejo', 'Bearer synthetic-env-github'])
-        self.assertNotIn('synthetic-env-', output)
-
-    def test_unset_or_empty_environment_uses_each_calling_users_token_file(self):
-        self.token_file('forgejo', b' \nsynthetic-file-forgejo\t\n')
-        self.token_file('github', b' \nsynthetic-file-github\t\n')
-        for environment in ({}, {'FORGEJO_TOKEN': '', 'GITHUB_TOKEN': ''}):
-            with self.subTest(environment=environment), patch.dict(os.environ, environment):
-                self.api.reset_mock()
-                self.sync.reset_mock()
-                output = self.main()
-                self.assertEqual([call.args[1] for call in self.api.call_args_list],
-                                 ['token synthetic-file-forgejo', 'Bearer synthetic-file-github'])
-                self.assertNotIn('synthetic-file-', output)
-
-    def test_each_token_can_independently_mix_environment_and_file_sources(self):
-        for env_service, file_service in (('forgejo', 'github'), ('github', 'forgejo')):
-            with self.subTest(env_service=env_service), patch.dict(os.environ, {
-                    env_service.upper() + '_TOKEN': 'synthetic-env-' + env_service}):
-                path = self.token_file(file_service, (' \nsynthetic-file-' + file_service + '\t').encode())
-                original = Path.read_text
-
-                def read(selected, *args, **kwargs):
-                    self.assertEqual(selected, path)
-                    self.assertEqual(kwargs, {'encoding': 'utf-8'})
-                    return original(selected, *args, **kwargs)
-
-                self.api.reset_mock()
-                self.sync.reset_mock()
-                with patch.object(Path, 'read_text', read):
-                    output = self.main()
-                expected = ['token synthetic-' + ('env-' if env_service == 'forgejo' else 'file-') + 'forgejo',
-                            'Bearer synthetic-' + ('env-' if env_service == 'github' else 'file-') + 'github']
-                self.assertEqual([call.args[1] for call in self.api.call_args_list], expected)
-                self.assertNotIn('synthetic-', output)
-                path.unlink()
-
-    def test_missing_empty_and_whitespace_token_files_fail_before_api_lock_or_sync(self):
-        for service in ('forgejo', 'github'):
-            for content in (None, b'', b' \t\n'):
-                with self.subTest(service=service, content=content), patch.dict(os.environ, {
-                        ('GITHUB_TOKEN' if service == 'forgejo' else 'FORGEJO_TOKEN'): 'synthetic-other-token'}):
-                    path = self.home / '.config' / service / 'token'
-                    if content is not None:
-                        self.token_file(service, content)
-                    output = self.main(expected_error='缺少 ' + service.upper() + '_TOKEN')
-                    self.assertIn(str(path), output)
-                    self.assertNotIn('synthetic-other-token', output)
-                    if path.exists():
-                        path.unlink()
-
-    def test_read_permission_error_fails_before_api_lock_or_sync_without_leaking(self):
-        for service in ('forgejo', 'github'):
-            with self.subTest(service=service), patch.dict(os.environ, {
-                    ('GITHUB_TOKEN' if service == 'forgejo' else 'FORGEJO_TOKEN'): 'synthetic-other-token'}):
-                with patch.object(Path, 'read_text', side_effect=PermissionError('synthetic-private-content')):
-                    output = self.main(expected_error='凭据文件失败')
-                self.assertNotIn('synthetic-private-content', output)
-                self.assertNotIn('synthetic-other-token', output)
-
-    def test_invalid_utf8_fails_before_api_lock_or_sync_without_leaking(self):
-        for service in ('forgejo', 'github'):
-            with self.subTest(service=service), patch.dict(os.environ, {
-                    ('GITHUB_TOKEN' if service == 'forgejo' else 'FORGEJO_TOKEN'): 'synthetic-other-token'}):
-                path = self.token_file(service, b'synthetic-private-content\xff')
-                output = self.main(expected_error='凭据文件失败')
-                self.assertNotIn('synthetic-private-content', output)
-                self.assertNotIn('synthetic-other-token', output)
-                path.unlink()
-
-    def test_file_tokens_do_not_populate_environment_or_replace_registry_authentication(self):
-        self.token_file('forgejo', b'synthetic-file-forgejo')
-        self.token_file('github', b'synthetic-file-github')
-        self.main()
-        self.assertNotIn('FORGEJO_TOKEN', os.environ)
-        self.assertNotIn('GITHUB_TOKEN', os.environ)
-        self.assertNotIn('REGISTRY_AUTH_FILE', os.environ)
-        with self.assertRaisesRegex(RuntimeError, 'REGISTRY_AUTH_FILE'):
-            self.module['auth_file']()
-
-    def test_git_subprocess_environment_still_excludes_api_tokens(self):
-        os.environ.update(FORGEJO_TOKEN='synthetic-env-forgejo', GITHUB_TOKEN='synthetic-env-github')
-        with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as process:
-            self.module['run'](['git', 'ls-remote', 'fixture'], 'fixture')
-        environment = process.call_args.kwargs['env']
-        self.assertNotIn('FORGEJO_TOKEN', environment)
-        self.assertNotIn('GITHUB_TOKEN', environment)
-        self.assertEqual(environment['GIT_TERMINAL_PROMPT'], '0')
+SOURCE = (ROOT / 'scripts/sync-github.py').read_text()
 
 
 class SyncUserAgentTests(unittest.TestCase):
@@ -153,7 +21,7 @@ class SyncUserAgentTests(unittest.TestCase):
         module = {'__name__': 'sync_fixture'}
         with (patch.object(sys, 'argv', ['sync', str(ROOT)]), patch.object(sys, 'path', sys.path[:]),
               tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {'HOME': home}, clear=True)):
-            exec(compile(SOURCE, 'sysnc-github.sh', 'exec'), module)
+            exec(compile(SOURCE, 'scripts/sync-github.py', 'exec'), module)
         calls = []
 
         @contextmanager
@@ -182,60 +50,7 @@ class SyncFixture(unittest.TestCase):
         self.enterContext(patch.object(sys, 'argv', ['sync', str(ROOT)]))
         self.enterContext(patch.object(sys, 'path', sys.path[:]))
         self.module = {'__name__': 'sync_fixture'}
-        exec(compile(SOURCE, 'sysnc-github.sh', 'exec'), self.module)
-
-
-class SyncRegistryAuthTests(SyncFixture):
-    def setUp(self):
-        super().setUp()
-        self.enterContext(patch('shutil.which', return_value='/synthetic/skopeo'))
-        self.default = self.directory / '.config' / 'containers' / 'auth.json'
-        self.default.parent.mkdir(parents=True)
-        self.default.write_text('synthetic-private-default')
-
-    def test_unset_and_empty_select_home_default_without_reading_content(self):
-        for value in (None, ''):
-            with self.subTest(value=value):
-                if value is not None:
-                    os.environ['REGISTRY_AUTH_FILE'] = value
-                with patch.object(Path, 'read_bytes', side_effect=AssertionError('must not read content')):
-                    self.assertEqual(self.module['auth_file'](), str(self.default))
-
-    def test_nonempty_explicit_authfile_wins(self):
-        explicit = self.directory / 'explicit.json'
-        explicit.write_text('synthetic-private-explicit')
-        os.environ['REGISTRY_AUTH_FILE'] = str(explicit)
-        self.default.unlink()
-        self.assertEqual(self.module['auth_file'](), str(explicit))
-
-    def test_missing_or_directory_explicit_path_never_falls_back(self):
-        for path in (self.directory / 'missing.json', self.directory):
-            with self.subTest(path=path), patch.dict(os.environ, REGISTRY_AUTH_FILE=str(path)):
-                with self.assertRaises(RuntimeError) as error:
-                    self.module['auth_file']()
-                self.assertIn(str(path), str(error.exception))
-                self.assertIn('skopeo login --authfile', str(error.exception))
-                self.assertIn('REGISTRY_AUTH_FILE', str(error.exception))
-                self.assertNotIn('synthetic-private', str(error.exception))
-
-    def test_unreadable_explicit_or_default_reports_only_selected_path_and_guidance(self):
-        for explicit in (False, True):
-            path = self.directory / 'explicit.json' if explicit else self.default
-            environment = {'REGISTRY_AUTH_FILE': str(path)} if explicit else {}
-            with self.subTest(explicit=explicit), patch.dict(os.environ, environment):
-                with patch.object(Path, 'is_file', return_value=True), patch.object(
-                        Path, 'open', side_effect=PermissionError('synthetic-private-content')):
-                    with self.assertRaises(RuntimeError) as error:
-                        self.module['auth_file']()
-                self.assertIn(str(path), str(error.exception))
-                self.assertIn('skopeo login --authfile', str(error.exception))
-                self.assertNotIn('synthetic-private-content', str(error.exception))
-
-    def test_missing_default_reports_home_path(self):
-        self.default.unlink()
-        with self.assertRaises(RuntimeError) as error:
-            self.module['auth_file']()
-        self.assertIn(str(self.default), str(error.exception))
+        exec(compile(SOURCE, 'scripts/sync-github.py', 'exec'), self.module)
 
 
 class SyncGitAuthTests(SyncFixture):
@@ -253,35 +68,13 @@ class SyncGitAuthTests(SyncFixture):
     def git(self, *args, input=None):
         return subprocess.run(['git', *args], input=input, capture_output=True, text=True, check=True).stdout
 
-    def test_snapshot_inherits_only_local_credentials_preserving_empty_and_multi_helpers(self):
-        credentials = self.directory / 'synthetic-credentials'
-        credentials.write_text('https://fixture-user:fixture-password@github.test\n')
-        credentials.chmod(0o600)
-        key = 'credential.https://github.test.helper'
-        self.git('-C', str(self.project), 'config', 'credential.helper', '')
-        for value in ('', 'store --file=' + str(credentials), ''):
-            self.git('-C', str(self.project), 'config', '--add', key, value)
-        self.git('-C', str(self.project), 'config', '--add', key, 'store --file=' + str(credentials))
-        self.git('-C', str(self.project), 'config', 'credential.https://github.test.useHttpPath', 'true')
-        self.git('-C', str(self.project), 'config', 'credential.https://github.test.username', 'fixture-user')
-        for name, value in (('core.hooksPath', '/must-not-inherit'), ('remote.private.url', '/must-not-inherit'),
-                            ('user.name', 'must-not-inherit'), ('url./untrusted.insteadOf', 'https://github.test/')):
-            self.git('-C', str(self.project), 'config', name, value)
+    def test_snapshot_never_inherits_project_credentials_or_hooks(self):
+        for key, value in (('credential.helper', '/must-not-inherit'), ('core.hooksPath', '/must-not-inherit')):
+            self.git('-C', str(self.project), 'config', key, value)
         snapshot = self.module['Snapshot'](self.directory / 'snapshot.git', project=self.project)
-        self.assertEqual(self.git('-C', str(snapshot.directory), 'config', '--get-all', key),
-                         '\nstore --file=' + str(credentials) + '\n\nstore --file=' + str(credentials) + '\n')
-        self.assertEqual(self.git('-C', str(snapshot.directory), 'config', '--get-all', 'credential.helper'), '\n')
-        output = self.git('-C', str(snapshot.directory), 'credential', 'fill',
-                          input='protocol=https\nhost=github.test\n\n')
-        self.assertIn('username=fixture-user', output)
-        self.assertIn('password=fixture-password', output)
-        self.assertEqual(self.git('-C', str(snapshot.directory), 'config', '--get',
-                                 'credential.https://github.test.useHttpPath').strip(), 'true')
-        for name in ('core.hooksPath', 'remote.private.url', 'user.name', 'url./untrusted.insteadOf'):
-            result = subprocess.run(['git', '-C', str(snapshot.directory), 'config', '--local', '--get', name],
-                                    capture_output=True)
+        for key in ('credential.helper', 'core.hooksPath'):
+            result = subprocess.run(['git', '-C', str(snapshot.directory), 'config', '--local', '--get', key], capture_output=True)
             self.assertEqual(result.returncode, 1)
-        # Exercise the temporary repository's actual transport preflight, not only the project config.
         self.assertIn('refs/heads/main', snapshot.target())
 
     def test_no_project_git_config_still_creates_snapshot(self):
@@ -322,7 +115,7 @@ class SyncCustomVersionTests(SyncFixture):
         target.json.side_effect = [dict(entry, id=1, draft=True), dict(entry, id=1)]
         verify_image, process = MagicMock(return_value=False), MagicMock()
         with patch.dict(self.module, auth_file=lambda: str(self.directory / 'auth.json'),
-                        verify_image=verify_image, run=process), redirect_stdout(io.StringIO()):
+                        verify_image=verify_image, public_image=MagicMock(), run=process), redirect_stdout(io.StringIO()):
             version = self.module['Version'](tag, entry, self.directory, source, target, snapshot, None)
             version.sync(target)
         self.assertEqual(target.upload.call_count, 8)  # six packages + sums + build; no Forgejo-only marker
@@ -358,6 +151,165 @@ class SyncCustomVersionTests(SyncFixture):
         source.forgejo_asset.assert_not_called()
         snapshot.git.assert_not_called()
         self.assertEqual(snapshot.changes.call_args.args[0], snapshot.heads)
+
+
+class SyncWebBoundaryTests(SyncFixture):
+    def test_ghcr_anonymous_failure_leaves_draft_with_specific_public_instructions(self):
+        cls = self.module['Version']
+        version = cls.__new__(cls)
+        version.tag = version.title = 'v2.23.1-custom.1'
+        version.body = 'fixture'
+        version.target = dict(tag_name=version.tag, name=version.title, body=version.body,
+                              draft=True, prerelease=False)
+        version.target_path = '/releases/1'
+        version.missing = set()
+        version.image_exists = True
+        version.image = {}
+        version.authfile = 'auth'
+        version.target_image = 'ghcr.io/eezd/sub2api:' + version.tag
+        target = MagicMock()
+        def verify(ref, image, authfile, **kwargs):
+            if authfile != 'auth':
+                raise RuntimeError('anonymous denied')
+            return True
+        with patch.dict(self.module, verify_image=verify):
+            with self.assertRaisesRegex(RuntimeError, 'https://github.com/users/eezd/packages/container/sub2api/settings'):
+                version.sync(target)
+        self.assertTrue(version.target['draft'])
+        target.json.assert_not_called()
+
+    def test_latest_uses_index_only_forgejo_all_ghcr_and_both_public_checks(self):
+        old_raw, new_raw = b'old-index', b'new-index'
+        def record(sha, version, raw, branch='main'):
+            return dict(source_sha=sha, version=version, source_branch=branch, schema=5,
+                        image=dict(ref=self.module['FORGEJO_IMAGE']+':'+version,
+                                   digest='sha256:'+hashlib.sha256(raw).hexdigest()))
+        old = record('a', 'v2.23.1-custom.1', old_raw)
+        new = record('b', 'v2.23.1-custom.2', new_raw)
+        dev = record('c', 'v2.23.1-custom.99', b'dev', 'dev')
+        versions = [MagicMock(metadata=row) for row in (old, new, dev)]
+        snapshot = MagicMock(heads={'refs/heads/main': 'b'})
+        snapshot.ancestor.side_effect = lambda a, b: a == b or (a, b) == ('a', 'b')
+        process, public = MagicMock(), MagicMock()
+        with patch.dict(self.module, auth_file=lambda: 'auth', read_manifest=MagicMock(return_value=old_raw),
+                        run=process, public_image=public):
+            self.module['sync_latest'](versions, snapshot)
+        self.assertEqual(process.call_count, 2)
+        self.assertIn('--multi-arch=index-only', process.call_args_list[0].args[0])
+        self.assertIn('--all', process.call_args_list[1].args[0])
+        self.assertTrue(all('--preserve-digests' in call.args[0] for call in process.call_args_list))
+        self.assertEqual(public.call_count, 3)  # source + both destinations; function checks auth+anonymous
+        # Both aliases are inspected before writes; unknown GHCR stops *all* updates.
+        process.reset_mock()
+        with patch.dict(self.module, auth_file=lambda: 'auth', read_manifest=MagicMock(side_effect=[old_raw, b'unknown']),
+                        run=process, public_image=public):
+            with self.assertRaisesRegex(ValueError, 'Unknown'):
+                self.module['sync_latest'](versions, snapshot)
+        process.assert_not_called()
+
+    def sync_entry_fixture(self, records):
+        source, target, snapshot = MagicMock(), MagicMock(), MagicMock()
+        target.json.side_effect = [dict(full_name='eezd/sub2api', private=False, archived=False,
+                                        permissions={'push': True}), {'enabled': False}]
+        source.json.return_value = {'permissions': {'push': True}}
+        source.pages.return_value = [dict(tag_name=row['version'], draft=False, prerelease=False,
+            assets=[{'name': 'release-complete.json'}]) for row in records]
+        target.pages.return_value = []
+        snapshot.heads = {'refs/heads/main': 'head'}
+        snapshot.refs = snapshot.heads | {'refs/tags/'+row['version']: row['source_sha'] for row in records}
+        snapshot.in_scope.return_value = True
+        snapshot.target.return_value = snapshot.refs
+        snapshot.changes.return_value = ['refs/heads/main:refs/heads/main']
+        versions = [MagicMock(tag=row['version'], metadata=row) for row in records]
+        constructor = MagicMock(side_effect=versions)
+        return source, target, snapshot, versions, constructor
+
+    def latest_record(self, sha, number, raw):
+        version = 'v2.23.1-custom.'+str(number)
+        return dict(schema=5, source_branch='main', source_sha=sha, version=version,
+                    image=dict(ref=self.module['FORGEJO_IMAGE']+':'+version,
+                               digest='sha256:'+hashlib.sha256(raw).hexdigest()))
+
+    def assert_no_sync_writes(self, source, target, snapshot, versions, process):
+        snapshot.lfs.assert_not_called()
+        snapshot.git.assert_not_called()
+        target.upload.assert_not_called()
+        source.upload.assert_not_called()
+        self.assertEqual(target.json.call_count, 2)  # repository and Actions permission reads only
+        for call in target.json.call_args_list:
+            self.assertEqual(len(call.args), 2)
+            self.assertNotIn('method', call.kwargs)
+        for version in versions:
+            version.sync.assert_not_called()
+        process.assert_not_called()  # no Skopeo copy or subprocess writes
+
+    def test_sync_entry_unknown_alias_on_either_registry_stops_before_every_target_write(self):
+        record = self.latest_record('head', 1, b'known')
+        for aliases in ([b'unknown-forgejo', None], [None, b'unknown-ghcr']):
+            with self.subTest(aliases=aliases):
+                source, target, snapshot, versions, constructor = self.sync_entry_fixture([record])
+                snapshot.ancestor.side_effect = lambda a, b: a == b
+                process = MagicMock()
+                manifests = MagicMock(side_effect=aliases)
+                with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                                USE_LFS='true', auth_file=lambda: 'auth', read_manifest=manifests,
+                                run=process), redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(ValueError, 'Unknown'):
+                        self.module['sync'](self.directory, source, target)
+                self.assertEqual(manifests.call_count, 2)
+                self.assert_no_sync_writes(source, target, snapshot, versions, process)
+
+    def test_sync_entry_forked_completed_main_stops_before_every_target_write(self):
+        records = [self.latest_record('a', 1, b'a'), self.latest_record('b', 2, b'b')]
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture(records)
+        snapshot.ancestor.side_effect = lambda a, b: a == b or b == 'head'
+        process, manifests = MagicMock(), MagicMock()
+        with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        USE_LFS='true', auth_file=lambda: 'auth', read_manifest=manifests,
+                        run=process), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'diverge'):
+                self.module['sync'](self.directory, source, target)
+        manifests.assert_not_called()
+        self.assert_no_sync_writes(source, target, snapshot, versions, process)
+
+    def test_sync_entry_rechecks_both_aliases_after_versions_before_latest_write(self):
+        record = self.latest_record('head', 1, b'known')
+        source, target, snapshot, versions, constructor = self.sync_entry_fixture([record])
+        snapshot.ancestor.side_effect = lambda a, b: a == b
+        process = MagicMock()
+        manifests = MagicMock(side_effect=[None, None, None, b'changed-to-unknown'])
+        with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
+                        USE_LFS='true', auth_file=lambda: 'auth', read_manifest=manifests,
+                        run=process), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Unknown'):
+                self.module['sync'](self.directory, source, target)
+        self.assertEqual(manifests.call_count, 4)
+        snapshot.lfs.assert_called_once()
+        snapshot.git.assert_called_once()
+        versions[0].sync.assert_called_once_with(target)
+        process.assert_not_called()  # recheck failed before either latest copy
+
+    def test_valid_version_syncs_but_legacy_gap_still_nonzero_and_no_latest(self):
+        source, target, snapshot = MagicMock(), MagicMock(), MagicMock()
+        target.json.side_effect = [dict(full_name='eezd/sub2api', private=False, archived=False,
+                                        permissions={'push': True}), {'enabled': False}]
+        source.json.return_value = {'permissions': {'push': True}}
+        valid, legacy = 'v2.23.1-custom.1', 'v2.22.0-custom.1'
+        source.pages.return_value = [dict(tag_name=tag, draft=False, prerelease=False,
+            assets=[{'name': 'release-complete.json'}] if tag == valid else []) for tag in (valid, legacy)]
+        target.pages.return_value = []
+        snapshot.refs = dict({'refs/heads/main': 'a'*40}, **{'refs/tags/'+tag: 'a'*40 for tag in (valid, legacy)})
+        snapshot.heads = {'refs/heads/main': 'a'*40}
+        snapshot.in_scope.return_value = True
+        snapshot.target.return_value = snapshot.refs
+        snapshot.changes.return_value = []
+        version, latest = MagicMock(), MagicMock()
+        with patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot),
+                        Version=MagicMock(return_value=version), sync_latest=latest), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, '仍有 1 个正式版本未同步'):
+                self.module['sync'](self.directory, source, target)
+        version.sync.assert_called_once_with(target)
+        latest.assert_not_called()
 
 
 if __name__ == '__main__':

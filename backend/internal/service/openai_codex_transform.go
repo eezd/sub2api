@@ -13,6 +13,8 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6.2-sol":          "gpt-6.2-sol",
+	"gpt-6.2-astra":        "gpt-6.2-astra",
 	"gpt-6.1-terra":        "gpt-6.1-terra",
 	"gpt-6.1-sol":          "gpt-6.1-sol",
 	"gpt-6-sol":            "gpt-6-sol",
@@ -67,6 +69,8 @@ var codexVersionModelPrefixes = []struct {
 	target string
 }{
 	{prefix: "gpt-6.1-terra", target: "gpt-6.1-terra"},
+	{prefix: "gpt-6.2-sol", target: "gpt-6.2-sol"},
+	{prefix: "gpt-6.2-astra", target: "gpt-6.2-astra"},
 	{prefix: "gpt-6.1-sol", target: "gpt-6.1-sol"},
 	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
 	{prefix: "gpt-6-luna", target: "gpt-6-luna"},
@@ -238,36 +242,7 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		result.Modified = true
 	}
 
-	// 兼容遗留的 functions 和 function_call，转换为 tools 和 tool_choice
-	if functionsRaw, ok := reqBody["functions"]; ok {
-		if functions, k := functionsRaw.([]any); k {
-			tools := make([]any, 0, len(functions))
-			for _, f := range functions {
-				tools = append(tools, map[string]any{
-					"type":     "function",
-					"function": f,
-				})
-			}
-			reqBody["tools"] = tools
-		}
-		delete(reqBody, "functions")
-		result.Modified = true
-	}
-
-	if fcRaw, ok := reqBody["function_call"]; ok {
-		if fcStr, ok := fcRaw.(string); ok {
-			// e.g. "auto", "none"
-			reqBody["tool_choice"] = fcStr
-		} else if fcObj, ok := fcRaw.(map[string]any); ok {
-			// e.g. {"name": "my_func"}
-			if name, ok := fcObj["name"].(string); ok && strings.TrimSpace(name) != "" {
-				reqBody["tool_choice"] = map[string]any{
-					"type": "function",
-					"name": name,
-				}
-			}
-		}
-		delete(reqBody, "function_call")
+	if convertCodexLegacyFunctionControls(reqBody) {
 		result.Modified = true
 	}
 

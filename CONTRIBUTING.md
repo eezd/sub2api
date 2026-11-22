@@ -2,7 +2,7 @@
 
 本指南适用于 [eezd/sub2api](https://github.com/eezd/sub2api)。欢迎提交可复现的 Bug、功能建议、文档修正、测试和代码改进。中文或英文均可，保留错误消息、字段名和命令的原文。
 
-Forgejo 切换验收后，日常开发从私有主仓库的 `dev` 起步，`main` 只接收已审查的稳定提交并托管发布控制。GitHub 的公开 `production`、已有安装和发布记录继续保留，不推送开发分支。迁移尚未完成的 checkout 不要自行改写现有远端；以维护者确认的切换状态为准。上游代码按需引入；不要把 PR 发到上游 `main`。运维 CLI、监控及生产部署脚本属于 sub2api-operate。
+Forgejo 切换验收后，日常开发从主仓库的 `dev` 起步，`main` 只接收已审查的稳定提交并托管发布控制。GitHub 的公开 `production`、已有安装和发布记录继续保留，不推送开发分支。迁移尚未完成的 checkout 不要自行改写现有远端；以维护者确认的切换状态为准。上游代码按需引入；不要把 PR 发到上游 `main`。运维 CLI、监控及生产部署脚本属于 sub2api-operate。
 
 ## Agent 使用建议与披露
 
@@ -212,7 +212,7 @@ pnpm --dir frontend run dev
 
 ### CI 工作流维护
 
-[旧 GitHub 工作流](.github/workflow-archive/legacy-github-actions)及[检查矩阵](.github/ci/README.md)不再执行，保留为历史参考。Forgejo 切换完成后不再依靠 GitHub 自动检查或发版；按下表运行实际改动所需的本地检查。Forgejo [手动发布工作流](.forgejo/workflows/sub2api-manual-release.yml)仅由维护者经 `release.sh` 手动调度，不随 PR、push 或 tag 自动运行。运行条件与发布边界见 [Forgejo 发布指南](deploy/GITEA_RELEASE.md)。
+[旧 GitHub 工作流](.github/workflow-archive/legacy-github-actions)及[检查矩阵](.github/ci/README.md)不再执行，保留为历史参考。Forgejo 切换完成后不再依靠 GitHub 自动检查或发版；按下表运行实际改动所需的本地检查。Forgejo [Manual release](.forgejo/workflows/release.yml)（分支及可选完整 SHA）与 [Manual GitHub sync](.forgejo/workflows/sync-github.yml)（无输入）为两个独立网页手动入口，共用仓库并发组，不随 PR、push 或 tag 自动运行。控制来自本次可信 `main` 的固定 SHA，CI 使用显式 Secret 和临时认证，不读取本机登录态。版本仍使用本项目 `v<已集成上游正式版本>-custom.N`，并在转正式前独立匿名验收双架构镜像。安装、权限、历史证据缺口与真实验收边界见 [Forgejo 发布指南](deploy/GITEA_RELEASE.md)；本地修改不代表可信 main 已安装。
 
 可复用的回归测试优先进入现有测试集或按路径触发的工作流。为单次 PR 添加的固定基线 RED/GREEN、截图和试用构建应在完成后移入[历史 CI 归档](.github/workflow-archive/README.md)，避免长期绑定已合并分支或为无关 PR 创建跳过的检查。归档只移走工作流入口，测试源码和取证脚本继续保留。
 

@@ -1,0 +1,72 @@
+name: Manual release (Sub2API)
+run-name: Release ${{ inputs.source_branch }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: Remote source branch (frozen when execution starts)
+        required: true
+        default: main
+        type: string
+      source_sha:
+        description: Optional full SHA; leave empty for branch HEAD
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+
+concurrency:
+  group: sub2api-delivery
+  cancel-in-progress: false
+jobs:
+  release:
+    if: forgejo.ref == 'refs/heads/main'
+    runs-on: docker
+    timeout-minutes: 115
+    container:
+      image: node:24-trixie
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ forgejo.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install release tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl python3 git docker-cli docker-buildx skopeo
+      - name: Resolve source once
+        id: source
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CONTROL_REF: ${{ forgejo.ref }}
+          CONTROL_SHA: ${{ forgejo.sha }}
+          CI_RUN_ID: ${{ forgejo.run_id }}
+          CI_RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+          FORGEJO_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_CONTEXT: ${{ runner.temp }}/sub2api-release-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}.json
+        run: python3 scripts/resolve-release.py
+      - name: Build and publish fixed source once
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          CONTROL_REF: ${{ forgejo.ref }}
+          CONTROL_SHA: ${{ forgejo.sha }}
+          RELEASE_CONTEXT: ${{ runner.temp }}/sub2api-release-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}.json
+          FORGEJO_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          CI_RUN_ID: ${{ forgejo.run_id }}
+          CI_RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+          DOCKER_CONFIG: ${{ runner.temp }}/sub2api-release-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}/docker
+        run: |
+          python3 scripts/manual-release.py
+      - name: Clean only this run
+        if: always()
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          CI_RUN_ID: ${{ forgejo.run_id }}
+          CI_RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+          DOCKER_CONFIG: ${{ runner.temp }}/sub2api-release-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}/docker
+        run: |
+          python3 scripts/manual-release.py --cleanup
