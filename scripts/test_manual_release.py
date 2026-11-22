@@ -56,22 +56,22 @@ class BaselineTests(unittest.TestCase):
 
 class CustomVersionTests(unittest.TestCase):
     def test_counter_is_numeric_and_only_uses_pinned_upstream_base(self):
-        self.assertEqual(release.UPSTREAM_TAG, 'v2.23.1')
-        self.assertEqual(release.UPSTREAM_COMMIT, '00e00796080c632188cf9df7912050b144a1a44f')
-        self.assertEqual(release.version_for([]), 'v2.23.1-custom.1')
-        self.assertEqual(release.version_for({'v2.23.1-custom.2', 'v2.23.1-custom.9',
-                         'v2.23.1-custom.10', 'v2.22.0-custom.999', 'v2.23.0-custom.999',
-                         '20261121-aaaaaaaa', 'v2.23.1'}), 'v2.23.1-custom.11')
+        self.assertEqual(release.UPSTREAM_TAG, 'v2.24.1')
+        self.assertEqual(release.UPSTREAM_COMMIT, '0755d5ef037f64d203828d0edcc513764b69e1d2')
+        self.assertEqual(release.version_for([]), 'v2.24.1-custom.1')
+        self.assertEqual(release.version_for({'v2.24.1-custom.2', 'v2.24.1-custom.9',
+                         'v2.24.1-custom.10', 'v2.23.1-custom.999', 'v2.24.0-custom.999',
+                         '20261121-aaaaaaaa', 'v2.24.1'}), 'v2.24.1-custom.11')
 
     def test_remote_tags_and_markerless_legacy_releases_both_occupy_numbers(self):
         api = MagicMock()
-        api.git.return_value = ('a' * 40 + '\trefs/tags/v2.23.1-custom.9\n' +
-                                'b' * 40 + '\trefs/tags/v2.22.0-custom.999\n')
-        api.pages.return_value = [{'tag_name': 'v2.23.1-custom.10'}]
+        api.git.return_value = ('a' * 40 + '\trefs/tags/v2.24.1-custom.9\n' +
+                                'b' * 40 + '\trefs/tags/v2.23.1-custom.999\n')
+        api.pages.return_value = [{'tag_name': 'v2.24.1-custom.10'}]
         api.assets.return_value = {'checksums.txt': b'legacy'}
         history, unfinished = release.release_history(api)
         self.assertEqual(history, {})  # Historical imports are never completed baselines.
-        self.assertEqual(release.version_for(unfinished), 'v2.23.1-custom.11')
+        self.assertEqual(release.version_for(unfinished), 'v2.24.1-custom.11')
         api.download.assert_not_called()
 
 
@@ -120,7 +120,7 @@ class VerifyBuildTests(unittest.TestCase):
         output, row, run_id = self.build.call_args.args
         self.assertEqual(row['source_sha'], self.commit)
         self.assertEqual(row['source_branch'], 'feature/demo')
-        self.assertEqual(row['version'], 'v2.23.1-custom.1')
+        self.assertEqual(row['version'], 'v2.24.1-custom.1')
         self.assertIn('verification-only label, not allocated', stdout.getvalue())
         self.assertEqual(run_id, '123-1')
         self.engine.assert_called_once_with()
@@ -335,6 +335,8 @@ class FakeForgejo:
 
 class PublisherTests(unittest.TestCase):
     def setUp(self):
+        # Keep recovery fixtures on their original base independently of the current upstream pin.
+        self.enterContext(patch.object(release, 'UPSTREAM_TAG', 'v2.23.1'))
         self.row = dict(version='v2.23.1-custom.1', source_sha='a' * 40, source_branch='dev', previous_tag=None,
                         built_at='2025-03-01T00:00:00Z', body='init', run_id='100-1', actor_id=7,
                         request_id='00000000-0000-4000-8000-000000000001', control_sha='c' * 40)

@@ -26,8 +26,8 @@ HEX = re.compile(r'[0-9a-f]{40}')
 SHA256 = re.compile(r'[0-9a-f]{64}')
 VERSION = re.compile(r'v([0-9]+\.[0-9]+\.[0-9]+)-custom\.([0-9]+)')
 # Update only after an explicitly approved integration of a new official upstream release.
-UPSTREAM_TAG = 'v2.23.1'
-UPSTREAM_COMMIT = '00e00796080c632188cf9df7912050b144a1a44f'
+UPSTREAM_TAG = 'v2.24.1'
+UPSTREAM_COMMIT = '0755d5ef037f64d203828d0edcc513764b69e1d2'
 WORKFLOW = 'release.yml'
 LEGACY_WORKFLOW = 'sub2api-manual-release.yml'
 CONTEXT_KEYS = ('source_branch_head', 'release_inputs', 'control_sha', 'release_run_id', 'release_request_id')
