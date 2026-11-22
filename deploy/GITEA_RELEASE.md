@@ -71,6 +71,8 @@ Forgejo 正式版本包含 Linux/macOS/Windows × amd64/arm64 六个程序包、
 
 ## 独立 Manual GitHub sync
 
+同步控制器 `scripts/sync-github.py` 沿用 RawMark 的单文件结构，仅导入 Python 标准库，不依赖同目录 Python 模块；工作流可原样用 `runpy.run_path()` 读取 `USE_LFS`，不需要 `PYTHONPATH` 或 `sys.path` 补丁。同步所需的临时认证、Forgejo HTTP 传输及本项目历史/别名校验都在脚本内；仍保留 curl 作为 Forgejo 边缘传输工具，`scripts/delivery-history.json` 作为固定历史数据输入。`delivery_ci.py`、`gitea_http.py` 继续供发布控制使用，不因同步单文件化删除。修改安全边界时须同时核对两种入口的对应测试。
+
 操作者另行启动无输入的同步工作流，发布任务不串联它。范围仅为获准公开的 `main` 及其可达、已验收正式 TAG/Release/镜像，不公开 `dev`，不更新 GitHub `production`，不强推、不改写既有分发。同步前检查 GitHub Actions 确实关闭、目标权限和 Git/Registry 传输认证，并在任何目标写入前只读预检 main 祖先选版与两端已有 `latest`；未知别名或 main 分叉立即停止，真正更新前再次核验。API Token 可用不代表 Git 推送权限可用。
 
 GitHub 每版只接收 **8 个附件**：六程序包、`SHA256SUMS`、`build.json`，不复制内部 `release-complete.json`；GHCR 继续 `--all --preserve-digests` 全量复制双架构。目标已一致则复用，冲突停止。认证及独立匿名索引/子清单验收成功后才能将目标草稿转正式。全部新流程版本验证成功，且没有未核对的历史证据缺口后，才按 main 祖先规则推进 GHCR `latest`；有些版本已补齐但整体存在缺口时仍返回失败，逐版报告，不模拟总成功。

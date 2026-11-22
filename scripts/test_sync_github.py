@@ -52,8 +52,112 @@ class SyncFixture(unittest.TestCase):
         self.module = {'__name__': 'sync_fixture'}
         exec(compile(SOURCE, 'scripts/sync-github.py', 'exec'), self.module)
         self.history = {'schema': 1, 'repositories': {'forgejo': self.module['FORGEJO_GIT'],
-                        'github': self.module['GITHUB_GIT']}, 'archives': []}
+                        'github': self.module['GITHUB_GIT']}, 'archives': [],
+                        'latest_transition': {'after_commit': 'a' * 40, 'aliases': {}}}
         self.module['delivery_history'] = lambda: self.history
+
+
+class StandaloneSyncTests(SyncFixture):
+    def test_imports_only_standard_library_modules(self):
+        import ast
+        tree = ast.parse(SOURCE)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name.split('.')[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                self.assertEqual(node.level, 0)
+                names = [node.module.split('.')[0]]
+            else:
+                continue
+            self.assertTrue(set(names) <= sys.stdlib_module_names, names)
+
+    def test_standalone_cleanup_cli_only_removes_matching_run_attempt(self):
+        script = self.directory / 'sync-github.py'
+        script.write_text(SOURCE)
+        current = self.directory / 'sub2api-sync-100-2'
+        other = self.directory / 'sub2api-sync-101-2'
+        current.mkdir()
+        other.mkdir()
+        environment = {'PATH': os.defpath, 'HOME': str(self.directory),
+                       'RUNNER_TEMP': str(self.directory), 'CI_RUN_ID': '100', 'CI_RUN_ATTEMPT': '2',
+                       'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+        result = subprocess.run([sys.executable, '-B', str(script), '--cleanup'], cwd=self.directory,
+                                capture_output=True, text=True, env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(current.exists())
+        self.assertTrue(other.exists())
+        environment['CI_RUN_ATTEMPT'] = '../other'
+        result = subprocess.run([sys.executable, '-B', str(script), '--cleanup'], cwd=self.directory,
+                                capture_output=True, text=True, env=environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(other.exists())
+
+    def test_missing_secrets_fail_before_any_remote_operation(self):
+        with patch.object(subprocess, 'run') as process:
+            with self.assertRaisesRegex(RuntimeError, 'Missing Actions Secret'):
+                self.module['main'](self.directory)
+        process.assert_not_called()
+
+    def test_scoped_credentials_anonymous_login_and_finally_cleanup(self):
+        os.environ.update(RUNNER_TEMP=str(self.directory), CI_RUN_ID='100', CI_RUN_ATTEMPT='2',
+                          FORGEJO_TOKEN='synthetic-forgejo', GITHUB_TOKEN='synthetic-github')
+        other = self.directory / 'sub2api-sync-101-2'
+        other.mkdir()
+        before = dict(os.environ)
+        path = self.module['path_for']('sync')
+        tokens = {self.module['FORGEJO_GIT']: 'synthetic-forgejo',
+                  self.module['GITHUB_GIT']: 'synthetic-github'}
+        with self.assertRaisesRegex(RuntimeError, 'synthetic cancellation'):
+            with self.module['credentials']('sync', tokens) as auth:
+                self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+                self.assertEqual((path / 'credentials.json').stat().st_mode & 0o777, 0o600)
+                self.assertEqual(Path(auth).stat().st_mode & 0o777, 0o600)
+                for url, expected in ((self.module['FORGEJO_GIT'], True), (self.module['GITHUB_GIT'], True),
+                                      ('https://git.134333.xyz/eezd/other.git', False),
+                                      (self.module['FORGEJO_GIT'] + '/child', False)):
+                    result = subprocess.run(['git', 'credential', 'fill'], input='url='+url+'\n\n',
+                        text=True, capture_output=True, env=self.module['child_env']())
+                    self.assertEqual(result.returncode == 0, expected)
+                    self.assertEqual('synthetic-' in result.stdout, expected)
+                authenticated_home = os.environ['HOME']
+                with self.module['anonymous']() as empty:
+                    self.assertNotEqual(os.environ['HOME'], authenticated_home)
+                    self.assertEqual(json.loads(Path(empty).read_text()), {'auths': {}})
+                    self.assertFalse(set(self.module['TOKENS']) & os.environ.keys())
+                    self.assertNotIn('CI_GIT_HELPER', os.environ)
+                self.assertFalse(Path(empty).exists())
+                self.assertEqual(os.environ['HOME'], authenticated_home)
+                with patch.object(subprocess, 'run') as process:
+                    self.module['login'](auth, 'ghcr.io', 'eezd', 'synthetic-github')
+                self.assertEqual(process.call_args.kwargs['input'], 'synthetic-github')
+                self.assertNotIn('synthetic-github', ' '.join(process.call_args.args[0]))
+                self.assertFalse(set(self.module['TOKENS']) & process.call_args.kwargs['env'].keys())
+                raise RuntimeError('synthetic cancellation')
+        self.assertEqual(dict(os.environ), before)
+        self.assertFalse(path.exists())
+        self.module['cleanup_auth']('sync')  # workflow always() is a safe second cleanup
+        self.assertTrue(other.exists())
+        os.environ['CI_RUN_ATTEMPT'] = '../other'
+        with self.assertRaisesRegex(ValueError, 'Invalid CI run/attempt'):
+            self.module['cleanup_auth']('sync')
+        self.assertTrue(other.exists())
+
+    def test_embedded_forgejo_transport_keeps_token_on_stdin_and_never_replays(self):
+        token = 'synthetic-forgejo'
+        os.environ['FORGEJO_TOKEN'] = token
+        def reply(args, **kwargs):
+            Path(args[args.index('--dump-header') + 1]).write_bytes(b'HTTP/2 403 Forbidden\r\n\r\n')
+            kwargs['stdout'].write(b'denied')
+            self.assertNotIn(token, ' '.join(args))
+            self.assertNotIn('--location', args)
+            self.assertIn(b'Authorization: token synthetic-forgejo', kwargs['input'])
+            self.assertNotIn('FORGEJO_TOKEN', kwargs['env'])
+            return MagicMock(returncode=0)
+        with patch.object(subprocess, 'run', side_effect=reply) as process:
+            api = self.module['API'](self.module['FORGEJO_API'], 'token ' + token)
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 403'):
+                api.json('/user', 'fixture')
+        self.assertEqual(process.call_count, 1)
 
 
 class SyncGitAuthTests(SyncFixture):
@@ -304,7 +408,7 @@ class SyncWebBoundaryTests(SyncFixture):
         process.assert_not_called()  # recheck failed before either latest copy
 
     def bootstrap_history(self, raw):
-        return {'latest_transition': {'after_commit': 'a' * 40, 'aliases': {
+        return {**self.history, 'latest_transition': {'after_commit': 'a' * 40, 'aliases': {
             self.module['FORGEJO_IMAGE'] + ':latest': 'sha256:' + hashlib.sha256(raw).hexdigest(),
             'ghcr.io/eezd/sub2api:latest': 'sha256:' + hashlib.sha256(raw).hexdigest()}}}
 
@@ -317,7 +421,7 @@ class SyncWebBoundaryTests(SyncFixture):
         versions[0].sync.side_effect = lambda _: events.append('complete')
         manifests = MagicMock(side_effect=lambda *a, **kw: events.append('inspect') or raw)
         process = MagicMock(side_effect=lambda *a, **kw: events.append('copy'))
-        with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+        with patch.dict(self.module, delivery_history=lambda: self.bootstrap_history(raw)), \
              patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
                         auth_file=lambda: 'auth', read_manifest=manifests, run=process,
                         public_image=MagicMock()), redirect_stdout(io.StringIO()):
@@ -336,7 +440,7 @@ class SyncWebBoundaryTests(SyncFixture):
         source, target, snapshot, versions, constructor = self.sync_entry_fixture(records)
         snapshot.ancestor.side_effect = lambda a, b: a == b or a == 'a' * 40 or b in ('head', 'c' * 40)
         process = MagicMock()
-        with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+        with patch.dict(self.module, delivery_history=lambda: self.bootstrap_history(raw)), \
              patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
                         USE_LFS='true', auth_file=lambda: 'auth', read_manifest=MagicMock(return_value=raw),
                         run=process), redirect_stdout(io.StringIO()):
@@ -383,7 +487,7 @@ class SyncWebBoundaryTests(SyncFixture):
                     return hashlib.sha256(data).hexdigest()
                 source.forgejo_asset.side_effect = download
                 process = MagicMock()
-                with patch('delivery_ci.delivery_history', return_value=self.bootstrap_history(raw)), \
+                with patch.dict(self.module, delivery_history=lambda: self.bootstrap_history(raw)), \
                      patch.dict(self.module, Snapshot=MagicMock(return_value=snapshot), Version=constructor,
                                 USE_LFS='true', auth_file=lambda: 'auth', read_manifest=MagicMock(return_value=raw),
                                 public_image=MagicMock(), run=process), redirect_stdout(io.StringIO()):

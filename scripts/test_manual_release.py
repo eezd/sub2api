@@ -834,6 +834,37 @@ class PublisherTests(unittest.TestCase):
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_sync_tool_setup_reads_lfs_flag_from_standalone_script_in_fresh_python(self):
+        import yaml
+        workflow = yaml.load((ROOT / '.forgejo/workflows/sync-github.yml').read_text(), Loader=yaml.BaseLoader)
+        setup = next(step['run'] for step in workflow['jobs']['sync']['steps']
+                     if step['name'] == 'Install sync tools')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts, tools = root / 'scripts', root / 'bin'
+            scripts.mkdir()
+            tools.mkdir()
+            (tools / 'python3').symlink_to(sys.executable)
+            apt = tools / 'apt-get'
+            apt.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$INSTALL_LOG"\n')
+            apt.chmod(0o755)
+            # Match RawMark: the flag probe must need only this script, not sibling modules.
+            source = (ROOT / 'scripts/sync-github.py').read_text()
+            self.assertEqual(source.count("USE_LFS = 'false'"), 1)
+            for flag in ('false', 'true'):
+                with self.subTest(use_lfs=flag):
+                    (scripts / 'sync-github.py').write_text(source.replace("USE_LFS = 'false'", f"USE_LFS = '{flag}'"))
+                    log = root / f'install-{flag}.log'
+                    result = subprocess.run(['/bin/bash', '-e', '-c', setup], cwd=root, capture_output=True,
+                        text=True, env={'PATH': str(tools), 'HOME': str(root), 'INSTALL_LOG': str(log),
+                                        'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    installs = log.read_text().splitlines()
+                    expected = ['update', 'install -y --no-install-recommends python3 git skopeo ca-certificates curl']
+                    if flag == 'true':
+                        expected.append('install -y --no-install-recommends git-lfs')
+                    self.assertEqual(installs, expected)
+
     def test_web_contract_shared_serial_group_and_exact_cleanup(self):
         import yaml
         for filename, job_name in (('release.yml', 'release'), ('sync-github.yml', 'sync')):
